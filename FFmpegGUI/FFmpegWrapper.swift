@@ -36,6 +36,11 @@ class FFmpegWrapper: ObservableObject {
         return "ffmpeg"
     }
     
+    /// Path to FFprobe binary
+    var ffprobePath: String {
+        ffmpegPath.replacingOccurrences(of: "ffmpeg", with: "ffprobe")
+    }
+    
     /// Check if FFmpeg is installed
     func isFFmpegInstalled() -> Bool {
         // Check if we can find FFmpeg in any of the common locations
@@ -79,6 +84,189 @@ class FFmpegWrapper: ObservableObject {
         }
         
         return "Unknown version"
+    }
+    
+    // MARK: - Video Dimension Analysis
+    
+    struct VideoDimensionInfo: Codable {
+        let width: Int
+        let height: Int
+        let duration: Double?
+        let frameRate: Double?
+        let codec: String?
+        
+        var hasOddDimension: Bool {
+            width % 2 != 0 || height % 2 != 0
+        }
+        
+        var aspectRatio: Double {
+            Double(width) / Double(height)
+        }
+        
+        var resolutionString: String {
+            "\(width)x\(height)"
+        }
+    }
+    
+    private struct FFprobeResult: Codable {
+        let streams: [FFprobeStream]?
+        let format: FFprobeFormat?
+    }
+
+    private struct FFprobeStream: Codable {
+        let width: Int?
+        let height: Int?
+        let codec_name: String?
+        let r_frame_rate: String?
+        let duration: String? // Duration from stream is often more accurate for video streams
+    }
+    
+    private struct FFprobeFormat: Codable {
+        let duration: String? // Duration from format is a fallback
+    }
+    
+    private func parseFrameRate(_ string: String?) -> Double? {
+        guard let string = string else { return nil }
+        let parts = string.components(separatedBy: "/")
+        if parts.count == 2, let num = Double(parts[0]), let den = Double(parts[1]), den != 0 {
+            return num / den
+        }
+        return Double(string)
+    }
+    
+    private func parseFFprobeOutput(_ data: Data) -> VideoDimensionInfo? {
+        let decoder = JSONDecoder()
+        do {
+            let result = try decoder.decode(FFprobeResult.self, from: data)
+            
+            // Find the first video stream
+            guard let videoStream = result.streams?.first(where: { $0.width != nil && $0.height != nil }) else {
+                return nil
+            }
+            
+            let width = videoStream.width ?? 0
+            let height = videoStream.height ?? 0
+            let codec = videoStream.codec_name
+            
+            // Use stream duration if available, otherwise fallback to format duration
+            let durationString = videoStream.duration ?? result.format?.duration
+            let duration = durationString.flatMap { Double($0) }
+            
+            let frameRate = parseFrameRate(videoStream.r_frame_rate)
+            
+            return VideoDimensionInfo(
+                width: width,
+                height: height,
+                duration: duration,
+                frameRate: frameRate,
+                codec: codec
+            )
+            
+        } catch {
+            print("Error decoding FFprobe JSON: \(error)")
+            return nil
+        }
+    }
+    
+    func getVideoDimensions(from videoPath: String) -> VideoDimensionInfo? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ffprobePath)
+        process.arguments = [
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_streams",
+            "-show_format",
+            videoPath
+        ]
+        
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        
+        do {
+            try process.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            
+            return parseFFprobeOutput(data)
+        } catch {
+            print("FFprobe execution error: \(error)")
+            return nil
+        }
+    }
+    
+    // MARK: - Video Analysis for Merging
+    
+    struct VideoAnalysisResult {
+        let files: [String: VideoDimensionInfo]
+        let mostCommonResolution: (width: Int, height: Int)
+        let hasMixedResolutions: Bool
+        let hasMixedCodecs: Bool
+        let hasMixedFrameRates: Bool
+        let needsReencoding: Bool
+        
+        var warningMessage: String? {
+            var warnings: [String] = []
+            
+            if hasMixedResolutions {
+                warnings.append("Mixed resolutions detected")
+            }
+            if hasMixedCodecs {
+                warnings.append("Mixed codecs detected")
+            }
+            if hasMixedFrameRates {
+                warnings.append("Mixed frame rates detected")
+            }
+            
+            return warnings.isEmpty ? nil : warnings.joined(separator: ". ")
+        }
+    }
+    
+    func analyzeVideoFiles(paths: [String]) -> VideoAnalysisResult? {
+        var fileInfos: [String: VideoDimensionInfo] = [:]
+        var resolutions: [String: Int] = [:]
+        var codecs: Set<String> = []
+        var frameRates: Set<Double> = []
+        
+        for path in paths {
+            if let info = getVideoDimensions(from: path) {
+                fileInfos[path] = info
+                
+                let resKey = info.resolutionString
+                resolutions[resKey, default: 0] += 1
+                
+                if let codec = info.codec {
+                    codecs.insert(codec)
+                }
+                
+                if let fr = info.frameRate {
+                    frameRates.insert(fr)
+                }
+            }
+        }
+        
+        guard !fileInfos.isEmpty else { return nil }
+        
+        // Find most common resolution
+        let mostCommonEntry = resolutions.max { $0.value < $1.value }!
+        let parts = mostCommonEntry.key.components(separatedBy: "x")
+        let mostCommonWidth = Int(parts[0]) ?? 0
+        let mostCommonHeight = Int(parts[1]) ?? 0
+        
+        let hasMixedResolutions = resolutions.count > 1
+        let hasMixedCodecs = codecs.count > 1
+        let hasMixedFrameRates = frameRates.count > 1
+        
+        // Needs re-encoding if resolutions, codecs, or frame rates are mixed
+        let needsReencoding = hasMixedResolutions || hasMixedCodecs || hasMixedFrameRates
+        
+        return VideoAnalysisResult(
+            files: fileInfos,
+            mostCommonResolution: (width: mostCommonWidth, height: mostCommonHeight),
+            hasMixedResolutions: hasMixedResolutions,
+            hasMixedCodecs: hasMixedCodecs,
+            hasMixedFrameRates: hasMixedFrameRates,
+            needsReencoding: needsReencoding
+        )
     }
     
     // MARK: - Convert Video/Audio Format

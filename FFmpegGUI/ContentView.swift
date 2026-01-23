@@ -162,6 +162,7 @@ struct ConvertView: View {
     
     @State private var inputPath = ""
     @State private var outputPath = ""
+    @State private var videoInfo: FFmpegWrapper.VideoDimensionInfo? = nil // New state
     @State private var selectedVideoCodec = 0
     @State private var selectedAudioCodec = 0
     @State private var videoBitrate = ""
@@ -186,6 +187,20 @@ struct ConvertView: View {
                     }
                 }
                 .padding(8)
+            }
+            
+            // Input Video Info Display (New UI element)
+            if let info = videoInfo {
+                HStack {
+                    Text("Input Dimensions:").fontWeight(.bold)
+                    Text("\(info.resolutionString) (\(info.codec ?? "N/A"), \(String(format: "%.2f", info.frameRate ?? 0)) fps)")
+                    if info.hasOddDimension {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
+                        Text("Odd dimensions detected (may cause issues)").foregroundColor(.orange)
+                    }
+                }
+                .font(.caption)
+                .padding(.horizontal)
             }
             
             // Output Settings
@@ -272,6 +287,19 @@ struct ConvertView: View {
                 .disabled(inputPath.isEmpty || outputPath.isEmpty || ffmpeg.isProcessing)
             }
         }
+        .onChange(of: inputPath) { newValue in
+            if !newValue.isEmpty {
+                // Run on a background thread to avoid blocking the UI
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let info = ffmpeg.getVideoDimensions(from: newValue)
+                    DispatchQueue.main.async {
+                        self.videoInfo = info
+                    }
+                }
+            } else {
+                videoInfo = nil
+            }
+        }
     }
     
     private func selectInputFile() {
@@ -308,8 +336,8 @@ struct ConvertView: View {
             outputPath: outputPath,
             videoCodec: videoCodec,
             audioCodec: audioCodec,
-            videoBitrate: videoBitrate.isEmpty ? nil : videoBitrate,
-            audioBitrate: audioBitrate.isEmpty ? nil : audioBitrate
+            videoBitrate: videoBitrate,
+            audioBitrate: audioBitrate
         ) { success, message in
             alertTitle = success ? "Success" : "Error"
             alertMessage = message
@@ -333,7 +361,7 @@ struct TrimView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Trim Video")
+            Text("Trim Video/Audio")
                 .font(.headline)
             
             // Input File
@@ -352,13 +380,17 @@ struct TrimView: View {
             // Trim Settings
             GroupBox("Trim Settings") {
                 VStack(alignment: .leading, spacing: 12) {
+                    Text("Time format: HH:MM:SS.ms (e.g., 00:01:30.500)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
                     HStack {
                         Text("Start Time:")
                             .frame(width: 100, alignment: .leading)
-                        TextField("HH:MM:SS or seconds", text: $startTime)
+                        TextField("00:00:00", text: $startTime)
                             .textFieldStyle(.roundedBorder)
-                            .frame(width: 200)
-                        Text("e.g., 00:01:30 or 90")
+                            .frame(width: 150)
+                        Text("(optional)")
                             .foregroundColor(.secondary)
                             .font(.caption)
                     }
@@ -366,17 +398,13 @@ struct TrimView: View {
                     HStack {
                         Text("End Time:")
                             .frame(width: 100, alignment: .leading)
-                        TextField("HH:MM:SS or seconds", text: $endTime)
+                        TextField("End of file", text: $endTime)
                             .textFieldStyle(.roundedBorder)
-                            .frame(width: 200)
-                        Text("e.g., 00:05:00 or 300")
+                            .frame(width: 150)
+                        Text("(optional)")
                             .foregroundColor(.secondary)
                             .font(.caption)
                     }
-                    
-                    Text("Leave empty to trim from start or to end")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
                 }
                 .padding(8)
             }
@@ -397,7 +425,7 @@ struct TrimView: View {
             // Trim Button
             HStack {
                 Spacer()
-                Button("Trim Video") {
+                Button("Trim") {
                     startTrim()
                 }
                 .buttonStyle(.borderedProminent)
@@ -416,10 +444,7 @@ struct TrimView: View {
             inputPath = url.path
             // Auto-generate output path
             let inputURL = URL(fileURLWithPath: inputPath)
-            let baseName = inputURL.deletingPathExtension().lastPathComponent
-            let ext = inputURL.pathExtension
-            let outputURL = inputURL.deletingLastPathComponent()
-                .appendingPathComponent("\(baseName)_trimmed.\(ext)")
+            let outputURL = inputURL.deletingPathExtension().appendingPathExtension("trimmed.\(inputURL.pathExtension)")
             outputPath = outputURL.path
         }
     }
@@ -463,38 +488,31 @@ struct MergeView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Merge Files")
+            Text("Merge Video/Audio Files")
                 .font(.headline)
             
             // Input Files
-            GroupBox("Input Files (in order)") {
+            GroupBox("Input Files (Order Matters)") {
                 VStack(alignment: .leading, spacing: 8) {
-                    // File List
-                    if inputFiles.isEmpty {
-                        Text("No files added. Click 'Add Files' to select files to merge.")
-                            .foregroundColor(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding()
-                    } else {
-                        List {
-                            ForEach(inputFiles.indices, id: \.self) { index in
-                                HStack {
-                                    Text("\(index + 1).")
-                                        .foregroundColor(.secondary)
-                                        .frame(width: 30)
-                                    Text(URL(fileURLWithPath: inputFiles[index]).lastPathComponent)
-                                    Spacer()
-                                    Button(action: { removeFile(at: index) }) {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .foregroundColor(.red)
-                                    }
-                                    .buttonStyle(.plain)
+                    List {
+                        ForEach(inputFiles.indices, id: \.self) { index in
+                            HStack {
+                                Text(URL(fileURLWithPath: inputFiles[index]).lastPathComponent)
+                                    .lineLimit(1)
+                                Spacer()
+                                Button {
+                                    removeFile(at: index)
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.red)
                                 }
+                                .buttonStyle(.plain)
                             }
-                            .onMove(perform: moveFiles)
                         }
-                        .frame(height: 150)
+                        .onMove(perform: moveFiles)
                     }
+                    .frame(minHeight: 150)
+                    .border(Color.gray.opacity(0.3))
                     
                     HStack {
                         Button("Add Files...") {
@@ -760,19 +778,22 @@ struct ImageSequenceView: View {
                     }
                     
                     HStack {
-                        Text("Codec:")
+                        Text("Video Codec:")
                             .frame(width: 100, alignment: .leading)
                         Picker("", selection: $selectedCodec) {
                             ForEach(0..<codecs.count, id: \.self) { index in
                                 Text(codecs[index].0).tag(index)
                             }
                         }
-                        .frame(width: 280)
+                        .frame(width: 200)
                     }
                     
-                    Text("Supported formats: PNG, JPG, JPEG, BMP, TIFF")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    HStack {
+                        Text("Pixel Format:")
+                            .frame(width: 100, alignment: .leading)
+                        Text("yuv420p (Recommended)")
+                            .foregroundColor(.secondary)
+                    }
                 }
                 .padding(8)
             }
@@ -790,22 +811,14 @@ struct ImageSequenceView: View {
                 .padding(8)
             }
             
-            // Duration estimate
-            if imageCount > 0, let fps = Int(frameRate), fps > 0 {
-                let duration = Double(imageCount) / Double(fps)
-                Text("Estimated duration: \(String(format: "%.2f", duration)) seconds")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            
-            // Create Video Button
+            // Convert Button
             HStack {
                 Spacer()
-                Button("Create Video") {
-                    startImageSequence()
+                Button("Convert") {
+                    startConversion()
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(inputFolder.isEmpty || outputPath.isEmpty || imageCount == 0 || ffmpeg.isProcessing)
+                .disabled(inputFolder.isEmpty || outputPath.isEmpty || ffmpeg.isProcessing)
             }
         }
     }
@@ -818,36 +831,25 @@ struct ImageSequenceView: View {
         
         if panel.runModal() == .OK, let url = panel.url {
             inputFolder = url.path
-            countImages()
-            
             // Auto-generate output path
-            outputPath = url.deletingLastPathComponent()
-                .appendingPathComponent("\(url.lastPathComponent)_video.mp4").path
-        }
-    }
-    
-    private func countImages() {
-        let fileManager = FileManager.default
-        let imageExtensions = ["png", "jpg", "jpeg", "bmp", "tiff", "tif"]
-        
-        do {
-            let files = try fileManager.contentsOfDirectory(atPath: inputFolder)
-            imageCount = files.filter { file in
-                let ext = (file as NSString).pathExtension.lowercased()
-                return imageExtensions.contains(ext)
-            }.count
+            let inputURL = URL(fileURLWithPath: inputFolder)
+            let outputURL = inputURL.deletingLastPathComponent().appendingPathComponent("\(inputURL.lastPathComponent).mp4")
+            outputPath = outputURL.path
             
             // Analyze dimensions
-            analysisResult = ffmpeg.analyzeImageDimensions(in: inputFolder)
-        } catch {
-            imageCount = 0
-            analysisResult = nil
+            if let analysis = ffmpeg.analyzeImageDimensions(in: inputFolder) {
+                analysisResult = analysis
+                imageCount = analysis.totalImages
+            } else {
+                analysisResult = nil
+                imageCount = 0
+            }
         }
     }
     
     private func selectOutputFile() {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.mpeg4Movie]
+        panel.allowedContentTypes = [UTType(filenameExtension: "mp4") ?? .movie]
         panel.nameFieldStringValue = "output.mp4"
         
         if panel.runModal() == .OK, let url = panel.url {
@@ -855,21 +857,33 @@ struct ImageSequenceView: View {
         }
     }
     
-    private func startImageSequence() {
-        let fps = Int(frameRate) ?? 24
+    private func startConversion() {
         let codec = codecs[selectedCodec].1
         
-        let targetW = useCustomDimensions && !customWidth.isEmpty ? Int(customWidth) : nil
-        let targetH = useCustomDimensions && !customHeight.isEmpty ? Int(customHeight) : nil
+        // Input validation
+        guard let fr = Int(frameRate), fr > 0 else {
+            alertTitle = "Error"
+            alertMessage = "Invalid frame rate."
+            showAlert = true
+            return
+        }
+        
+        var targetWidth: Int? = nil
+        var targetHeight: Int? = nil
+        
+        if useCustomDimensions {
+            targetWidth = Int(customWidth)
+            targetHeight = Int(customHeight)
+        }
         
         ffmpeg.imageSequenceToVideo(
             inputFolder: inputFolder,
             outputPath: outputPath,
-            frameRate: fps,
+            frameRate: fr,
             videoCodec: codec,
             autoCorrectDimensions: autoCorrectDimensions,
-            targetWidth: targetW,
-            targetHeight: targetH
+            targetWidth: targetWidth,
+            targetHeight: targetHeight
         ) { success, message in
             alertTitle = success ? "Success" : "Error"
             alertMessage = message
@@ -882,47 +896,46 @@ struct ImageSequenceView: View {
 
 struct StatusView: View {
     @ObservedObject var ffmpeg: FFmpegWrapper
-    @State private var showLog = false
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack {
-                if ffmpeg.isProcessing {
-                    ProgressView(value: ffmpeg.progress)
-                        .frame(width: 200)
-                }
-                
+                Text("Status:")
+                    .fontWeight(.bold)
                 Text(ffmpeg.statusMessage)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
                 
                 Spacer()
                 
-                Button(showLog ? "Hide Log" : "Show Log") {
-                    showLog.toggle()
+                if ffmpeg.isProcessing {
+                    ProgressView(value: ffmpeg.progress)
+                        .frame(width: 150)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
+            .padding(.horizontal)
+            .padding(.top, 8)
             
-            if showLog {
-                ScrollView {
-                    Text(ffmpeg.outputLog)
-                        .font(.system(.caption, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
-                .frame(height: 150)
-                .background(Color(NSColor.textBackgroundColor))
-                .cornerRadius(4)
+            Text("Log:")
+                .fontWeight(.bold)
+                .padding(.horizontal)
+            
+            ScrollView {
+                Text(ffmpeg.outputLog)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
             }
+            .frame(height: 100)
+            .background(Color.black.opacity(0.05))
+            .cornerRadius(4)
+            .padding([.horizontal, .bottom])
         }
-        .padding()
     }
 }
 
-// MARK: - Preview
+// MARK: - Previews
 
-#Preview {
-    ContentView()
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
+    }
 }
