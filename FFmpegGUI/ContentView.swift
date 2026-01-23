@@ -162,12 +162,19 @@ struct ConvertView: View {
     
     @State private var inputPath = ""
     @State private var outputPath = ""
-    @State private var videoInfo: FFmpegWrapper.VideoDimensionInfo? = nil // New state
+    @State private var videoInfo: FFmpegWrapper.VideoDimensionInfo? = nil
     @State private var selectedVideoCodec = 0
     @State private var selectedAudioCodec = 0
     @State private var videoBitrate = ""
     @State private var audioBitrate = ""
     @State private var selectedOutputFormat = "mp4"
+    
+    // Scaling States
+    @State private var resizeVideo = false
+    @State private var scaleWidth = ""
+    @State private var scaleHeight = ""
+    @State private var selectedScaleFilter = 0
+    @State private var lockAspectRatio = true
     
     let outputFormats = ["mp4", "mov", "avi", "mkv", "webm", "mp3", "aac", "wav", "flac"]
     
@@ -189,7 +196,7 @@ struct ConvertView: View {
                 .padding(8)
             }
             
-            // Input Video Info Display (New UI element)
+            // Input Video Info Display
             if let info = videoInfo {
                 HStack {
                     Text("Input Dimensions:").fontWeight(.bold)
@@ -201,6 +208,87 @@ struct ConvertView: View {
                 }
                 .font(.caption)
                 .padding(.horizontal)
+            }
+            
+            // Resize/Scale Options (Phase 2 UI)
+            if videoInfo != nil {
+                GroupBox("Resize/Scale Options") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Toggle("Resize video", isOn: $resizeVideo)
+                        
+                        if resizeVideo {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text("Width:")
+                                        .frame(width: 60, alignment: .leading)
+                                    TextField("Auto", text: $scaleWidth)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 100)
+                                        .onChange(of: scaleWidth) { newValue in
+                                            if lockAspectRatio, let info = videoInfo, let newWidth = Int(newValue), newWidth > 0 {
+                                                let newHeight = Int(Double(newWidth) / info.aspectRatio)
+                                                scaleHeight = String(newHeight)
+                                            }
+                                        }
+                                    Text("px")
+                                    
+                                    Spacer().frame(width: 20)
+                                    
+                                    Text("Height:")
+                                        .frame(width: 60, alignment: .leading)
+                                    TextField("Auto", text: $scaleHeight)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 100)
+                                        .onChange(of: scaleHeight) { newValue in
+                                            if lockAspectRatio, let info = videoInfo, let newHeight = Int(newValue), newHeight > 0 {
+                                                let newWidth = Int(Double(newHeight) * info.aspectRatio)
+                                                scaleWidth = String(newWidth)
+                                            }
+                                        }
+                                    Text("px")
+                                    
+                                    Toggle("Lock Aspect Ratio", isOn: $lockAspectRatio)
+                                        .frame(width: 150)
+                                }
+                                
+                                HStack {
+                                    Text("Scale Quality:")
+                                        .frame(width: 100, alignment: .leading)
+                                    Picker("", selection: $selectedScaleFilter) {
+                                        ForEach(0..<SupportedFormats.scaleFilters.count, id: \.self) { index in
+                                            Text(SupportedFormats.scaleFilters[index].0).tag(index)
+                                        }
+                                    }
+                                    .frame(width: 200)
+                                    
+                                    Spacer()
+                                    
+                                    // Presets
+                                    Group {
+                                        Button("1080p") { scaleWidth = "1920"; scaleHeight = "1080" }
+                                        Button("720p") { scaleWidth = "1280"; scaleHeight = "720" }
+                                        Button("480p") { scaleWidth = "854"; scaleHeight = "480" }
+                                        Button("4K") { scaleWidth = "3840"; scaleHeight = "2160" }
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                }
+                                
+                                // Output Dimension Preview
+                                if let info = videoInfo, let w = Int(scaleWidth), let h = Int(scaleHeight) {
+                                    Text("Output will be: \(w)x\(h)")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                } else if let info = videoInfo, info.hasOddDimension {
+                                    Text("Output will be: \(info.width + 1)x\(info.height + 1) (Auto-corrected odd dimensions)")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                    }
+                    .padding(8)
+                }
             }
             
             // Output Settings
@@ -294,6 +382,11 @@ struct ConvertView: View {
                     let info = ffmpeg.getVideoDimensions(from: newValue)
                     DispatchQueue.main.async {
                         self.videoInfo = info
+                        // Auto-populate scale fields with current dimensions if resize is on
+                        if let info = info, self.resizeVideo {
+                            self.scaleWidth = String(info.width)
+                            self.scaleHeight = String(info.height)
+                        }
                     }
                 }
             } else {
@@ -331,13 +424,33 @@ struct ConvertView: View {
         let videoCodec = SupportedFormats.videoCodecs[selectedVideoCodec].1
         let audioCodec = SupportedFormats.audioCodecs[selectedAudioCodec].1
         
+        var targetWidth: Int? = nil
+        var targetHeight: Int? = nil
+        var scaleFilter: String? = nil
+        var autoCorrectOdd = false
+        
+        if resizeVideo {
+            targetWidth = Int(scaleWidth)
+            targetHeight = Int(scaleHeight)
+            scaleFilter = SupportedFormats.scaleFilters[selectedScaleFilter].1
+            
+            // If both fields are empty, we still want to auto-correct odd dimensions if they exist
+            if targetWidth == nil && targetHeight == nil && videoInfo?.hasOddDimension == true {
+                autoCorrectOdd = true
+            }
+        }
+        
         ffmpeg.convertFormat(
             inputPath: inputPath,
             outputPath: outputPath,
             videoCodec: videoCodec,
             audioCodec: audioCodec,
             videoBitrate: videoBitrate,
-            audioBitrate: audioBitrate
+            audioBitrate: audioBitrate,
+            scaleWidth: targetWidth,
+            scaleHeight: targetHeight,
+            scaleFilter: scaleFilter,
+            autoCorrectOdd: autoCorrectOdd
         ) { success, message in
             alertTitle = success ? "Success" : "Error"
             alertMessage = message

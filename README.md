@@ -46,6 +46,9 @@ The easiest way to install FFmpeg on macOS is via [Homebrew](https://brew.sh/):
 
 # Install FFmpeg
 brew install ffmpeg
+
+# Update FFmpeg (if already installed)
+brew upgrade ffmpeg
 ```
 
 The app automatically detects FFmpeg in common installation locations:
