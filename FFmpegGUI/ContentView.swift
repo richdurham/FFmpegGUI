@@ -598,6 +598,12 @@ struct MergeView: View {
     
     @State private var inputFiles: [String] = []
     @State private var outputPath = ""
+    @State private var analysisResult: FFmpegWrapper.VideoAnalysisResult? = nil
+    @State private var useReencode = false
+    @State private var selectedVideoCodec = 0
+    @State private var selectedAudioCodec = 0
+    @State private var videoBitrate = ""
+    @State private var audioBitrate = ""
     
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -634,6 +640,8 @@ struct MergeView: View {
                         
                         Button("Clear All") {
                             inputFiles.removeAll()
+                            analysisResult = nil
+                            useReencode = false
                         }
                         .disabled(inputFiles.isEmpty)
                         
@@ -644,6 +652,88 @@ struct MergeView: View {
                     }
                 }
                 .padding(8)
+            }
+            
+            // Analysis and Re-encode Options
+            if let analysis = analysisResult, inputFiles.count > 1 {
+                GroupBox("Merge Analysis") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Most Common Resolution:").fontWeight(.bold)
+                            Text("\(analysis.mostCommonResolution.width)x\(analysis.mostCommonResolution.height)")
+                        }
+                        .font(.caption)
+                        
+                        if let warning = analysis.warningMessage {
+                            HStack(alignment: .top, spacing: 4) {
+                                Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
+                                Text(warning)
+                                    .foregroundColor(.orange)
+                            }
+                            .font(.caption)
+                        }
+                        
+                        Divider()
+                        
+                        Toggle("Re-encode to ensure compatibility", isOn: $useReencode)
+                            .onChange(of: analysis.needsReencoding) { needsReencode in
+                                // Automatically suggest re-encode if needed
+                                if needsReencode {
+                                    useReencode = true
+                                }
+                            }
+                        
+                        if useReencode {
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    Text("Video Codec:")
+                                        .frame(width: 100, alignment: .leading)
+                                    Picker("", selection: $selectedVideoCodec) {
+                                        ForEach(0..<SupportedFormats.videoCodecs.count, id: \.self) { index in
+                                            Text(SupportedFormats.videoCodecs[index].0).tag(index)
+                                        }
+                                    }
+                                    .frame(width: 200)
+                                }
+                                
+                                HStack {
+                                    Text("Audio Codec:")
+                                        .frame(width: 100, alignment: .leading)
+                                    Picker("", selection: $selectedAudioCodec) {
+                                        ForEach(0..<SupportedFormats.audioCodecs.count, id: \.self) { index in
+                                            Text(SupportedFormats.audioCodecs[index].0).tag(index)
+                                        }
+                                    }
+                                    .frame(width: 200)
+                                }
+                                
+                                HStack {
+                                    Text("Video Bitrate:")
+                                        .frame(width: 100, alignment: .leading)
+                                    TextField("e.g., 5M, 2000k", text: $videoBitrate)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 150)
+                                    Text("(optional)")
+                                        .foregroundColor(.secondary)
+                                        .font(.caption)
+                                }
+                                
+                                HStack {
+                                    Text("Audio Bitrate:")
+                                        .frame(width: 100, alignment: .leading)
+                                    TextField("e.g., 192k, 320k", text: $audioBitrate)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 150)
+                                    Text("(optional)")
+                                        .foregroundColor(.secondary)
+                                        .font(.caption)
+                                }
+                            }
+                            .padding(.leading, 10)
+                        }
+                    }
+                    .padding(8)
+                }
             }
             
             // Output File
@@ -683,12 +773,39 @@ struct MergeView: View {
         panel.canChooseFiles = true
         
         if panel.runModal() == .OK {
-            inputFiles.append(contentsOf: panel.urls.map { $0.path })
+            let newFiles = panel.urls.map { $0.path }
+            inputFiles.append(contentsOf: newFiles)
+            
+            // Analyze files on a background thread
+            DispatchQueue.global(qos: .userInitiated).async {
+                if let analysis = ffmpeg.analyzeVideoFiles(paths: inputFiles) {
+                    DispatchQueue.main.async {
+                        self.analysisResult = analysis
+                        // Automatically set re-encode flag if analysis suggests it
+                        if analysis.needsReencoding {
+                            self.useReencode = true
+                        }
+                    }
+                }
+            }
         }
     }
     
     private func removeFile(at index: Int) {
         inputFiles.remove(at: index)
+        // Re-analyze after removal
+        if inputFiles.count >= 2 {
+            DispatchQueue.global(qos: .userInitiated).async {
+                if let analysis = ffmpeg.analyzeVideoFiles(paths: inputFiles) {
+                    DispatchQueue.main.async {
+                        self.analysisResult = analysis
+                    }
+                }
+            }
+        } else {
+            analysisResult = nil
+            useReencode = false
+        }
     }
     
     private func moveFiles(from source: IndexSet, to destination: Int) {
@@ -709,7 +826,21 @@ struct MergeView: View {
     }
     
     private func startMerge() {
-        ffmpeg.mergeFiles(inputPaths: inputFiles, outputPath: outputPath) { success, message in
+        let videoCodec = useReencode ? SupportedFormats.videoCodecs[selectedVideoCodec].1 : nil
+        let audioCodec = useReencode ? SupportedFormats.audioCodecs[selectedAudioCodec].1 : nil
+        let videoBitrate = useReencode ? self.videoBitrate : nil
+        let audioBitrate = useReencode ? self.audioBitrate : nil
+        
+        ffmpeg.mergeFiles(
+            inputPaths: inputFiles,
+            outputPath: outputPath,
+            useReencode: useReencode,
+            videoCodec: videoCodec,
+            audioCodec: audioCodec,
+            videoBitrate: videoBitrate,
+            audioBitrate: audioBitrate,
+            targetResolution: analysisResult?.mostCommonResolution
+        ) { success, message in
             alertTitle = success ? "Success" : "Error"
             alertMessage = message
             showAlert = true
