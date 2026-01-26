@@ -308,23 +308,22 @@ class FFmpegWrapper: ObservableObject {
                 scaleComponent = "scale='if(mod(iw,2),iw+1,iw)':'if(mod(ih,2),ih+1,ih)':flags=\(filter)"
             }
             
-            if let sc = scaleComponent {
-                videoFilters.append(sc)
+            if let scale = scaleComponent {
+                videoFilters.append(scale)
             }
         }
         
-        // Add video filter argument if any filters were applied
-        if !videoFilters.isEmpty {
-            arguments += ["-vf", videoFilters.joined(separator: ",")]
-        }
-        
         // 2. Codec and Bitrate Logic
-        if let vc = videoCodec, !vc.isEmpty {
+        if let vc = videoCodec, vc != "copy" {
             arguments += ["-c:v", vc]
+        } else if videoCodec == "copy" {
+            arguments += ["-c:v", "copy"]
         }
         
-        if let ac = audioCodec, !ac.isEmpty {
+        if let ac = audioCodec, ac != "copy" {
             arguments += ["-c:a", ac]
+        } else if audioCodec == "copy" {
+            arguments += ["-c:a", "copy"]
         }
         
         if let vb = videoBitrate, !vb.isEmpty {
@@ -335,14 +334,20 @@ class FFmpegWrapper: ObservableObject {
             arguments += ["-b:a", ab]
         }
         
-        arguments.append(outputPath)
+        // 3. Apply filters
+        if !videoFilters.isEmpty {
+            arguments += ["-vf", videoFilters.joined(separator: ",")]
+        }
+        
+        // 4. Output path
+        arguments += [outputPath]
         
         runFFmpeg(arguments: arguments, completion: completion)
     }
     
-    // MARK: - Trim Video
+    // MARK: - Trim Video/Audio
     
-    /// Trim a video file between start and end times
+    /// Trim a single segment from a media file
     func trimVideo(
         inputPath: String,
         outputPath: String,
@@ -350,25 +355,32 @@ class FFmpegWrapper: ObservableObject {
         endTime: String,
         completion: @escaping (Bool, String) -> Void
     ) {
-        var arguments = ["-i", inputPath]
+        var arguments: [String] = []
         
+        // Use -ss before -i for fast, but inaccurate seeking (frame-accurate is not needed for a simple trim)
         if !startTime.isEmpty {
             arguments += ["-ss", startTime]
         }
         
+        arguments += ["-i", inputPath, "-y"]
+        
         if !endTime.isEmpty {
+            // Use -to for duration/end time
             arguments += ["-to", endTime]
         }
         
-        // Use copy codec for faster trimming without re-encoding
-        arguments += ["-c", "copy", "-y", outputPath]
+        // Use copy codec for speed and quality preservation
+        arguments += ["-c", "copy"]
+        
+        // Output path
+        arguments += [outputPath]
         
         runFFmpeg(arguments: arguments, completion: completion)
     }
     
-    // MARK: - Merge Files
+    // MARK: - Merge Video/Audio Files
     
-    /// Merge multiple video/audio files into one
+    /// Merge multiple media files
     func mergeFiles(
         inputPaths: [String],
         outputPath: String,
@@ -380,116 +392,225 @@ class FFmpegWrapper: ObservableObject {
         targetResolution: (width: Int, height: Int)? = nil,
         completion: @escaping (Bool, String) -> Void
     ) {
-        let fileManager = FileManager.default
-        let tempDir = fileManager.temporaryDirectory
-        let listFile = tempDir.appendingPathComponent("ffmpeg_concat_list_\(UUID().uuidString).txt")
-        
-        var listContent = ""
-        for path in inputPaths {
-            // Escape single quotes in file paths
-            let escapedPath = path.replacingOccurrences(of: "'", with: "'\\''")
-            listContent += "file '\(escapedPath)'\n"
-        }
-        
-        do {
-            try listContent.write(to: listFile, atomically: true, encoding: .utf8)
-        } catch {
-            completion(false, "Failed to create file list: \(error.localizedDescription)")
+        guard !inputPaths.isEmpty else {
+            completion(false, "No input files provided.")
             return
         }
         
-        var arguments = [
-            "-f", "concat",
-            "-safe", "0",
-            "-i", listFile.path,
-            "-y"
-        ]
-        
-        if useReencode {
-            // Use complex filter graph for re-encoding and scaling
+        if !useReencode {
+            // Fast merge using concat demuxer (requires same codecs/resolutions)
+            let fileManager = FileManager.default
+            let tempDir = fileManager.temporaryDirectory
+            let listFile = tempDir.appendingPathComponent("ffmpeg_merge_list_\(UUID().uuidString).txt")
             
-            // 1. Create input streams
-            arguments = []
+            var listContent = ""
+            for path in inputPaths {
+                let escapedPath = path.replacingOccurrences(of: "'", with: "'\\''")
+                listContent += "file '\(escapedPath)'\n"
+            }
+            
+            do {
+                try listContent.write(to: listFile, atomically: true, encoding: .utf8)
+                
+                let arguments = [
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", listFile.path,
+                    "-c", "copy",
+                    "-y",
+                    outputPath
+                ]
+                
+                runFFmpeg(arguments: arguments) { success, message in
+                    try? fileManager.removeItem(at: listFile)
+                    completion(success, message)
+                }
+                
+            } catch {
+                completion(false, "Error creating temporary file: \(error.localizedDescription)")
+            }
+            
+        } else {
+            // Smart merge using filter_complex (handles mixed formats)
+            var arguments = ["-y"]
+            var filterComplex = ""
+            var mapOutputs: [String] = []
+            
+            // 1. Input files
             for path in inputPaths {
                 arguments += ["-i", path]
             }
             
-            // 2. Build filter graph
-            var filterGraph: [String] = []
-            var videoInputs: [String] = []
-            var audioInputs: [String] = []
-            
-            for i in 0..<inputPaths.count {
-                let videoLabel = "v\(i)"
-                let audioLabel = "a\(i)"
-                
-                // Scale video to target resolution (or most common)
-                if let res = targetResolution {
-                    // Ensure even dimensions for scaling
-                    let evenW = res.width % 2 == 0 ? res.width : res.width + 1
-                    let evenH = res.height % 2 == 0 ? res.height : res.height + 1
-                    
-                    // Use scale filter to match resolution
-                    filterGraph.append("[\(i):v]scale=\(evenW):\(evenH):force_original_aspect_ratio=decrease,pad=\(evenW):\(evenH):-1:-1,setsar=1[\(videoLabel)]")
-                } else {
-                    // No scaling, just label the stream
-                    filterGraph.append("[\(i):v]setsar=1[\(videoLabel)]")
+            // 2. Filter complex for scaling and concat
+            for (index, path) in inputPaths.enumerated() {
+                // Get info for the current file
+                guard let info = getVideoDimensions(from: path),
+                      let targetRes = targetResolution else {
+                    completion(false, "Could not get video dimensions for all files or target resolution is missing.")
+                    return
                 }
                 
-                // Label audio stream
-                filterGraph.append("[\(i):a][\(audioLabel)]")
+                let w = targetRes.width
+                let h = targetRes.height
                 
-                videoInputs.append("[\(videoLabel)]")
-                audioInputs.append("[\(audioLabel)]")
+                // Scale and pad filter
+                // [v_in]scale=w:h:force_original_aspect_ratio=decrease,pad=w:h:(w-iw)/2:(h-ih)/2,setsar=1[v_out]
+                let scaleFilter = "scale=\(w):\(h):force_original_aspect_ratio=decrease"
+                let padFilter = "pad=\(w):\(h):(ow-iw)/2:(oh-ih)/2"
+                let setsarFilter = "setsar=1" // Set sample aspect ratio to 1:1
+                
+                // Video stream filter
+                filterComplex += "[\(index):v] \(scaleFilter), \(padFilter), \(setsarFilter) [v\(index)];"
+                
+                // Audio stream filter (no-op, just to label)
+                filterComplex += "[\(index):a] aresample=async=1 [a\(index)];"
+                
+                mapOutputs.append("[v\(index)][a\(index)]")
             }
             
-            // 3. Concatenate streams
-            let numInputs = inputPaths.count
-            filterGraph.append("\(videoInputs.joined())\(audioInputs.joined())concat=n=\(numInputs):v=1:a=1[v][a]")
+            // 3. Concat filter
+            let n = inputPaths.count
+            filterComplex += mapOutputs.joined() + "concat=n=\(n):v=1:a=1[v_out][a_out]"
             
-            arguments += ["-filter_complex", filterGraph.joined(separator: ";")]
+            arguments += ["-filter_complex", filterComplex]
             
-            // 4. Output stream mapping and codecs
-            arguments += ["-map", "[v]", "-map", "[a]"]
+            // 4. Output settings
+            arguments += ["-map", "[v_out]", "-map", "[a_out]"]
             
-            // Video Codec
-            let vc = videoCodec ?? SupportedFormats.videoCodecs[0].1 // Default to H.264
-            arguments += ["-c:v", vc]
+            if let vc = videoCodec, vc != "copy" {
+                arguments += ["-c:v", vc]
+            } else {
+                arguments += ["-c:v", "libx264"] // Default video codec for re-encode
+            }
+            
+            if let ac = audioCodec, ac != "copy" {
+                arguments += ["-c:a", ac]
+            } else {
+                arguments += ["-c:a", "aac"] // Default audio codec for re-encode
+            }
+            
             if let vb = videoBitrate, !vb.isEmpty {
                 arguments += ["-b:v", vb]
             }
             
-            // Audio Codec
-            let ac = audioCodec ?? SupportedFormats.audioCodecs[0].1 // Default to AAC
-            arguments += ["-c:a", ac]
             if let ab = audioBitrate, !ab.isEmpty {
                 arguments += ["-b:a", ab]
             }
             
-        } else {
-            // Use fast concat demuxer (copy codec)
-            arguments += ["-c", "copy"]
-        }
-        
-        arguments.append(outputPath)
-        
-        runFFmpeg(arguments: arguments) { success, message in
-            // Clean up temp file
-            try? fileManager.removeItem(at: listFile)
-            completion(success, message)
+            arguments += ["-pix_fmt", "yuv420p"] // Recommended pixel format
+            
+            // 5. Output path
+            arguments += [outputPath]
+            
+            runFFmpeg(arguments: arguments, completion: completion)
         }
     }
     
-    // MARK: - Image Dimension Analysis
+    // MARK: - Multi-Segment Cut
+    
+    struct CutSegment: Identifiable {
+        let id: UUID
+        var start: String
+        var end: String
+    }
+    
+    /// Helper to convert HH:MM:SS.ms to seconds (Double)
+    private func timeStringToSeconds(_ timeString: String) -> Double? {
+        let components = timeString.split(separator: ":").map { String($0) }
+        var seconds: Double = 0
+        
+        if components.count == 3, let h = Double(components[0]), let m = Double(components[1]), let s = Double(components[2]) {
+            seconds = h * 3600 + m * 60 + s
+        } else if components.count == 2, let m = Double(components[0]), let s = Double(components[1]) {
+            seconds = m * 60 + s
+        } else if components.count == 1, let s = Double(components[0]) {
+            seconds = s
+        } else {
+            return nil
+        }
+        return seconds
+    }
+    
+    /// Cut multiple non-contiguous segments from a single media file
+    func cutSegments(
+        inputPath: String,
+        outputPath: String,
+        segments: [CutSegment],
+        completion: @escaping (Bool, String) -> Void
+    ) {
+        guard !segments.isEmpty else {
+            completion(false, "No segments provided.")
+            return
+        }
+        
+        // 1. Build the select filter expression
+        var selectFilterExpression = ""
+        var validSegments: [(start: Double, end: Double)] = []
+        
+        for segment in segments {
+            let startSeconds = timeStringToSeconds(segment.start) ?? 0.0
+            
+            // If end is empty, use a very large number (or the video duration if known)
+            var endSeconds: Double
+            if segment.end.isEmpty {
+                endSeconds = getVideoDimensions(from: inputPath)?.duration ?? 999999.0
+            } else {
+                endSeconds = timeStringToSeconds(segment.end) ?? 999999.0
+            }
+            
+            // Ensure start is before end
+            if startSeconds >= endSeconds {
+                continue
+            }
+            
+            validSegments.append((start: startSeconds, end: endSeconds))
+            
+            // FFmpeg select filter expression: between(t, start, end)
+            if !selectFilterExpression.isEmpty {
+                selectFilterExpression += "+"
+            }
+            selectFilterExpression += "between(t,\(startSeconds),\(endSeconds))"
+        }
+        
+        guard !validSegments.isEmpty else {
+            completion(false, "No valid segments could be parsed.")
+            return
+        }
+        
+        // 2. Build the filter_complex command
+        // [0:v]select='...',setpts=N/FRAME_RATE/TB[v]; [0:a]aselect='...',asetpts=N/SR/TB[a]; [v][a]concat=n=1:v=1:a=1[out]
+        
+        // The select filter expression is the same for video and audio
+        let videoFilter = "select='\(selectFilterExpression)',setpts=N/FRAME_RATE/TB"
+        let audioFilter = "aselect='\(selectFilterExpression)',asetpts=N/SR/TB"
+        
+        // Concatenation is implicit with the select filter, but we use concat to ensure a single output stream
+        // Since we are cutting non-contiguous segments, we need to use the concat filter to stitch them together.
+        // The number of inputs to concat is 1 because the select filter outputs a single stream with the selected parts.
+        let filterComplex = "[0:v]\(videoFilter)[v]; [0:a]\(audioFilter)[a]; [v][a]concat=n=1:v=1:a=1[out]"
+        
+        // 3. Build the final arguments
+        let arguments = [
+            "-i", inputPath,
+            "-filter_complex", filterComplex,
+            "-map", "[out]",
+            "-c:v", "libx264", // Re-encode is necessary for this filter_complex
+            "-c:a", "aac",
+            "-pix_fmt", "yuv420p",
+            "-y",
+            outputPath
+        ]
+        
+        runFFmpeg(arguments: arguments, completion: completion)
+    }
+    
+    // MARK: - Image Sequence to Video
     
     struct ImageDimensionInfo {
         let width: Int
         let height: Int
         let count: Int
         let hasOddDimension: Bool
-        
-        var isEven: Bool { !hasOddDimension }
-        var aspectRatio: Double { Double(width) / Double(height) }
     }
     
     struct ImageAnalysisResult {
@@ -587,8 +708,6 @@ class FFmpegWrapper: ObservableObject {
             needsCorrection: needsCorrection
         )
     }
-    
-    // MARK: - Image Sequence to Video
     
     /// Convert a folder of images to a video file
     func imageSequenceToVideo(

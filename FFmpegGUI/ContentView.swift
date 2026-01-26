@@ -33,8 +33,11 @@ struct ContentView: View {
                 TabButton(title: "Merge", icon: "rectangle.stack.badge.plus", isSelected: selectedTab == 2) {
                     selectedTab = 2
                 }
-                TabButton(title: "Images → Video", icon: "photo.stack", isSelected: selectedTab == 3) {
+                TabButton(title: "Cut", icon: "scissors.badge.on.rectangle", isSelected: selectedTab == 3) {
                     selectedTab = 3
+                }
+                TabButton(title: "Images → Video", icon: "photo.stack", isSelected: selectedTab == 4) {
+                    selectedTab = 4
                 }
             }
             .padding(.horizontal)
@@ -54,6 +57,8 @@ struct ContentView: View {
                     case 2:
                         MergeView(ffmpeg: ffmpeg, showAlert: $showAlert, alertTitle: $alertTitle, alertMessage: $alertMessage)
                     case 3:
+                        CutView(ffmpeg: ffmpeg, showAlert: $showAlert, alertTitle: $alertTitle, alertMessage: $alertMessage)
+                    case 4:
                         ImageSequenceView(ffmpeg: ffmpeg, showAlert: $showAlert, alertTitle: $alertTitle, alertMessage: $alertMessage)
                     default:
                         ConvertView(ffmpeg: ffmpeg, showAlert: $showAlert, alertTitle: $alertTitle, alertMessage: $alertMessage)
@@ -840,6 +845,182 @@ struct MergeView: View {
             videoBitrate: videoBitrate,
             audioBitrate: audioBitrate,
             targetResolution: analysisResult?.mostCommonResolution
+        ) { success, message in
+            alertTitle = success ? "Success" : "Error"
+            alertMessage = message
+            showAlert = true
+        }
+    }
+}
+
+// MARK: - Cut View
+
+struct CutView: View {
+    @ObservedObject var ffmpeg: FFmpegWrapper
+    @Binding var showAlert: Bool
+    @Binding var alertTitle: String
+    @Binding var alertMessage: String
+    
+    @State private var inputPath = ""
+    @State private var outputPath = ""
+    @State private var segments: [FFmpegWrapper.CutSegment] = [FFmpegWrapper.CutSegment(id: UUID(), start: "", end: "")]
+    @State private var videoInfo: FFmpegWrapper.VideoDimensionInfo? = nil
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Cut Multiple Segments from Video/Audio")
+                .font(.headline)
+            
+            // Input File
+            GroupBox("Input File") {
+                HStack {
+                    TextField("Select input file...", text: $inputPath)
+                        .textFieldStyle(.roundedBorder)
+                    
+                    Button("Browse...") {
+                        selectInputFile()
+                    }
+                }
+                .padding(8)
+            }
+            
+            // Video Info
+            if let info = videoInfo {
+                HStack {
+                    Text("Duration:").fontWeight(.bold)
+                    Text(info.duration.map { String(format: "%.2f seconds", $0) } ?? "N/A")
+                    Text("Resolution:").fontWeight(.bold)
+                    Text(info.resolutionString)
+                }
+                .font(.caption)
+                .padding(.horizontal)
+            }
+            
+            // Segments List
+            GroupBox("Segments to Keep (Time format: HH:MM:SS.ms)") {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Start Time (ss)").frame(width: 150)
+                        Text("End Time (to)").frame(width: 150)
+                        Spacer()
+                        Button("Add Segment") {
+                            segments.append(FFmpegWrapper.CutSegment(id: UUID(), start: "", end: ""))
+                        }
+                    }
+                    .font(.caption)
+                    .padding(.horizontal, 4)
+                    
+                    List {
+                        ForEach($segments) { $segment in
+                            HStack {
+                                TextField("00:00:00", text: $segment.start)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 150)
+                                
+                                TextField("End of file", text: $segment.end)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 150)
+                                
+                                Spacer()
+                                
+                                Button {
+                                    if let index = segments.firstIndex(where: { $0.id == segment.id }) {
+                                        segments.remove(at: index)
+                                    }
+                                } label: {
+                                    Image(systemName: "minus.circle.fill")
+                                        .foregroundColor(.red)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(segments.count == 1)
+                            }
+                        }
+                    }
+                    .frame(minHeight: 150)
+                    .border(Color.gray.opacity(0.3))
+                }
+                .padding(8)
+            }
+            
+            // Output File
+            GroupBox("Output File") {
+                HStack {
+                    TextField("Select output location...", text: $outputPath)
+                        .textFieldStyle(.roundedBorder)
+                    
+                    Button("Browse...") {
+                        selectOutputFile()
+                    }
+                }
+                .padding(8)
+            }
+            
+            // Cut Button
+            HStack {
+                Spacer()
+                Button("Cut Segments") {
+                    startCut()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(inputPath.isEmpty || outputPath.isEmpty || segments.isEmpty || ffmpeg.isProcessing)
+            }
+        }
+        .onChange(of: inputPath) { newValue in
+            if !newValue.isEmpty {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let info = ffmpeg.getVideoDimensions(from: newValue)
+                    DispatchQueue.main.async {
+                        self.videoInfo = info
+                    }
+                }
+            } else {
+                videoInfo = nil
+            }
+        }
+    }
+    
+    private func selectInputFile() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        
+        if panel.runModal() == .OK, let url = panel.url {
+            inputPath = url.path
+            // Auto-generate output path
+            let inputURL = URL(fileURLWithPath: inputPath)
+            let outputURL = inputURL.deletingPathExtension().appendingPathExtension("cut.\(inputURL.pathExtension)")
+            outputPath = outputURL.path
+        }
+    }
+    
+    private func selectOutputFile() {
+        let panel = NSSavePanel()
+        let inputURL = URL(fileURLWithPath: inputPath)
+        let ext = inputURL.pathExtension
+        panel.allowedContentTypes = [UTType(filenameExtension: ext) ?? .movie]
+        panel.nameFieldStringValue = "cut.\(ext)"
+        
+        if panel.runModal() == .OK, let url = panel.url {
+            outputPath = url.path
+        }
+    }
+    
+    private func startCut() {
+        // Basic validation
+        let validSegments = segments.filter { !$0.start.isEmpty || !$0.end.isEmpty }
+        
+        guard !validSegments.isEmpty else {
+            alertTitle = "Error"
+            alertMessage = "Please specify at least one start or end time for a segment."
+            showAlert = true
+            return
+        }
+        
+        ffmpeg.cutSegments(
+            inputPath: inputPath,
+            outputPath: outputPath,
+            segments: validSegments
         ) { success, message in
             alertTitle = success ? "Success" : "Error"
             alertMessage = message
