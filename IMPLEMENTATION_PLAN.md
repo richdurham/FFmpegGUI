@@ -270,3 +270,56 @@ Create: `DimensionControlsView`
 ✅ User is informed of what will happen before processing
 ✅ Progress is shown during normalization
 ✅ Temp files are cleaned up properly
+
+---
+
+## Phase 5: Extract Audio & Batch Processing
+
+### Overview
+Implement a dedicated tab for extracting audio from one or more video files, allowing the user to select the output format, codec, and bitrate. This phase will introduce batch processing capabilities.
+
+### UI Changes
+Create a new tab and view: **"Extract Audio View"**
+
+**Controls:**
+1.  **Input Files:** Button to select multiple video files (batch processing).
+2.  **Output Folder:** Button to select the destination directory.
+3.  **Output Settings GroupBox:**
+    *   **Format Picker:** Dropdown for output container (e.g., `mp3`, `m4a`, `flac`, `wav`).
+    *   **Codec Picker:** Dropdown for audio codec (e.g., AAC, MP3, FLAC, Copy).
+    *   **Bitrate Field:** Text field for custom bitrate (e.g., `192k`, `320k`).
+4.  **Extract Button:** Triggers the batch operation.
+
+**Display:**
+-   List of selected input files.
+-   Status display for batch progress (e.g., "Processing 3 of 10 files...").
+
+### Backend Changes
+**New Function:** `extractAudio(inputPaths: outputFolder: codec: bitrate: format: completion:)` in `FFmpegWrapper.swift`
+
+**Logic:**
+1.  Iterate through the `inputPaths` array.
+2.  For each input file, construct the output file path using the `outputFolder` and the selected `format`.
+3.  Construct the FFmpeg command for audio extraction.
+
+**FFmpeg Command:**
+```bash
+# Example for extracting AAC audio
+ffmpeg -i "input.mp4" -vn -c:a aac -b:a 192k -y "output_folder/input.m4a"
+# -vn: disable video recording
+# -c:a: set audio codec
+# -b:a: set audio bitrate
+```
+
+**Batch Progress:**
+-   Update the `statusMessage` and `progress` variables in `FFmpegWrapper` to reflect the overall batch progress (e.g., `progress = (currentFileIndex + 1) / totalFiles`).
+
+### Implementation Order
+1.  **FFmpegWrapper:** Add `extractAudio()` function.
+2.  **ContentView:** Add the new "Extract Audio" tab and `ExtractAudioView`.
+3.  **ExtractAudioView:** Implement UI controls and logic to call `extractAudio()`.
+4.  **FFmpegWrapper:** Update `runFFmpeg` to better handle batch progress reporting.
+5.  **Testing:** Test with various input formats and output settings.
+6.  **Documentation:** Update README with the new feature.
+
+---
