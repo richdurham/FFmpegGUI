@@ -167,109 +167,49 @@ ffmpeg -f concat -safe 0 -i list.txt -c copy output.mp4
 
 ---
 
-## Phase 4: Shared Components
+## Phase 4: Interactive Cut/Trim Tab Overhaul (Repair and Improvement)
 
-### Reusable UI Components
-Create: `DimensionControlsView`
-- Width/Height fields
-- Preset buttons
-- Scale quality picker
-- Aspect ratio lock
+### Goal
+Merge Trim and Cut functionality into a single, interactive tab with a video preview and timecode marking system.
 
-### Reusable Functions
-- `makeEvenDimension(_ value: Int) -> Int`
-- `calculateAspectRatioHeight(width: Int, aspectRatio: Double) -> Int`
-- `calculateAspectRatioWidth(height: Int, aspectRatio: Double) -> Int`
+### UI Changes
+- **Tab Icon:** Keep the Scissors icon.
+- **Video Preview Area:**
+    - Responsive video player showing the selected input file.
+    - Text caption indicating current dimensions.
+- **Control Bar:**
+    - Buttons: **Play**, **Pause**, **Trim Mark**, **Cut Mark**.
+- **Progress Bar:**
+    - Interactive scrubber with visual markers for Trim (yellow) and Cut (blue).
+    - Displays current timecode.
+- **Trim Section:**
+    - Single Start/End timecode entry fields.
+    - Caution icon/tooltip for flipped timecodes.
+- **Cut Section:**
+    - Dynamic list of Cut Segments (Start/End timecode pairs).
+    - Checkbox next to each segment: "Export as separate file."
 
----
+### Backend Changes
+- **Video Preview Generation:** Implement a mechanism to generate a low-resolution, scrubbable preview (e.g., a series of thumbnails or a short, low-bitrate proxy video).
+- **Timecode Logic:**
+    - Implement logic for **Trim Mark** button:
+        - Adds yellow marker to progress bar.
+        - Updates Trim Start/End fields, handling the case where the second mark is earlier than the first (flipping the values and showing a caution).
+    - Implement logic for **Cut Mark** button:
+        - Adds blue marker to progress bar.
+        - Adds a new segment to the Cut Segments list.
+- **Processing Logic (Unified `processCutTrim`):**
+    1.  **Apply Trim:** Use `-ss` and `-to` to trim the video first, creating a temporary trimmed file.
+    2.  **Apply Cuts:** Use the temporary trimmed file as the input for the multi-segment cut logic.
+    3.  **Timecode Shifting:** The Cut Segments must be calculated relative to the start of the *trimmed* video.
+    4.  **Segment Export:** If "Export as separate file" is checked for a segment, run a separate FFmpeg command for that segment using the original file and the original timecodes.
 
-## Implementation Order
-
-1. ✅ **FFmpegWrapper:** Add `getVideoDimensions()` using ffprobe
-2. ✅ **FFmpegWrapper:** Add `analyzeVideoFiles()` for batch analysis
-3. ✅ **Convert Tab:** Add dimension display and scaling controls
-4. ✅ **Convert Tab:** Update `convertFormat()` with scaling parameters
-5. ✅ **Merge Tab:** Add video analysis on file selection
-6. ✅ **Merge Tab:** Add resolution handling UI
-7. ✅ **Merge Tab:** Update `mergeFiles()` with normalization logic
-8. ✅ **Testing:** Test with various resolutions and codecs
-9. ✅ **Documentation:** Update README with new features
-
----
-
-## Edge Cases to Handle
-
-1. **Odd dimensions:** Auto-correct or warn user
-2. **Extreme aspect ratios:** Validate reasonable ranges
-3. **Very large files:** Show progress during normalization
-4. **Codec incompatibility:** Force re-encode if needed
-5. **Frame rate mismatch:** Option to normalize FPS
-6. **Audio track handling:** Preserve audio during scaling
-
----
-
-## User Experience Flow
-
-### Convert Tab
-1. User selects input video
-2. App displays: "Input: 1920×1080 (H.264, 30fps)"
-3. User enables "Resize video"
-4. User selects preset "1280×720" or enters custom
-5. App shows: "Output will be: 1280×720"
-6. User clicks Convert
-7. FFmpeg applies scale filter during conversion
-
-### Merge Tab
-1. User adds multiple videos
-2. App analyzes: "3 videos: 1920×1080 (2), 1280×720 (1)"
-3. App shows warning: "⚠️ Mixed resolutions detected"
-4. App suggests: "Auto-detect best resolution: 1920×1080"
-5. User can accept or customize
-6. User clicks Merge
-7. If needed, app normalizes videos then merges
-8. Progress shows: "Normalizing video 1/3..." then "Merging..."
-
----
-
-## Technical Notes
-
-### FFprobe JSON Parsing
-```json
-{
-  "streams": [{
-    "codec_name": "h264",
-    "width": 1920,
-    "height": 1080,
-    "r_frame_rate": "30/1",
-    "duration": "120.5"
-  }]
-}
-```
-
-### Scale Filter Quality Options
-- `lanczos` - Highest quality (default)
-- `bicubic` - Good quality, faster
-- `bilinear` - Medium quality
-- `fast_bilinear` - Fastest, lower quality
-- `neighbor` - Nearest neighbor (pixel art)
-
-### Performance Considerations
-- Normalization is CPU-intensive
-- Show progress bar for long operations
-- Consider temp file cleanup on cancel
-- Warn user about disk space for temp files
-
----
-
-## Success Criteria
-
-✅ Convert tab can resize videos with quality options
-✅ Merge tab detects resolution mismatches
-✅ Merge tab can normalize videos to common resolution
-✅ Odd dimensions are automatically corrected
-✅ User is informed of what will happen before processing
-✅ Progress is shown during normalization
-✅ Temp files are cleaned up properly
+### FFmpeg Strategy
+- **Trim Only:** `ffmpeg -ss [start] -to [end] -i [input] -c copy [output]`
+- **Cut Only:** `ffmpeg -i [input] -filter_complex "[video_select_filter][audio_select_filter]concat..." [output]`
+- **Trim then Cut:**
+    1. `ffmpeg -ss [trim_start] -to [trim_end] -i [input] -c copy [temp_trimmed]`
+    2. `ffmpeg -i [temp_trimmed] -filter_complex "[cut_select_filter_relative_to_trim]concat..." [output]`
 
 ---
 
