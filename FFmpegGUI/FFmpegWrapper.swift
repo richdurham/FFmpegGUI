@@ -345,18 +345,134 @@ class FFmpegWrapper: ObservableObject {
         runFFmpeg(arguments: arguments, completion: completion)
     }
     
-    // MARK: - Trim Video/Audio
+    // MARK: - Trim Video/Audio    // MARK: - Unified Cut/Trim/Segment Processing
     
-    /// Trim a single segment from a media file
-    func trimVideo(
+    /// Unified function to handle single trim or multi-segment cut operations
+    func processCutTrim(
         inputPath: String,
         outputPath: String,
-        startTime: String,
-        endTime: String,
+        trimStartTime: String,
+        trimEndTime: String,
+        segments: [CutSegment],
+        exportSegmentsSeparately: Bool,
         completion: @escaping (Bool, String) -> Void
     ) {
-        var arguments: [String] = []
+        // 1. Determine the operation type
+        let isTrimOnly = !trimStartTime.isEmpty || !trimEndTime.isEmpty
+        let isMultiCut = !segments.isEmpty
         
+        if isTrimOnly && isMultiCut {
+            completion(false, "Cannot perform both single Trim and Multi-Segment Cut simultaneously. Please use one or the other.")
+            return
+        }
+        
+        if isTrimOnly {
+            // Single Trim Operation
+            var arguments = ["-i", inputPath, "-y"]
+            
+            if !trimStartTime.isEmpty {
+                arguments.insert(contentsOf: ["-ss", trimStartTime], at: 1) // -ss before -i for fast seeking
+            }
+            
+            if !trimEndTime.isEmpty {
+                arguments.append(contentsOf: ["-to", trimEndTime])
+            }
+            
+            // Stream copy for speed and quality
+            arguments.append(contentsOf: ["-c", "copy", outputPath])
+            
+            runFFmpeg(arguments: arguments, completion: completion)
+            
+        } else if isMultiCut {
+            // Multi-Segment Cut Operation
+            
+            if exportSegmentsSeparately {
+                // Separate Export Operation (Phase 4.4)
+                
+                // 1. Validate and convert segments to seconds
+                var validSegments: [(start: Double, end: Double)] = []
+                for segment in segments {
+                    let startSeconds = timeStringToSeconds(segment.start) ?? 0.0
+                    var endSeconds: Double
+                    if segment.end.isEmpty {
+                        endSeconds = getVideoDimensions(from: inputPath)?.duration ?? 999999.0
+                    } else {
+                        endSeconds = timeStringToSeconds(segment.end) ?? 999999.0
+                    }
+                    if startSeconds < endSeconds {
+                        validSegments.append((start: startSeconds, end: endSeconds))
+                    }
+                }
+                
+                guard !validSegments.isEmpty else {
+                    completion(false, "No valid segments could be parsed for separate export.")
+                    return
+                }
+                
+                // 2. Start sequential processing
+                processSegmentSequentially(
+                    inputPath: inputPath,
+                    baseOutputPath: outputPath,
+                    segments: validSegments,
+                    currentIndex: 0,
+                    completion: completion
+                )
+                return
+            }
+            
+            // Merged Cut Operation (Existing logic from old cutSegments)
+            var selectFilterExpression = ""
+            var validSegments: [(start: Double, end: Double)] = []
+            
+            for segment in segments {
+                let startSeconds = timeStringToSeconds(segment.start) ?? 0.0
+                
+                var endSeconds: Double
+                if segment.end.isEmpty {
+                    endSeconds = getVideoDimensions(from: inputPath)?.duration ?? 999999.0
+                } else {
+                    endSeconds = timeStringToSeconds(segment.end) ?? 999999.0
+                }
+                
+                if startSeconds >= endSeconds {
+                    continue
+                }
+                
+                validSegments.append((start: startSeconds, end: endSeconds))
+                
+                if !selectFilterExpression.isEmpty {
+                    selectFilterExpression += "+"
+                }
+                selectFilterExpression += "between(t,\(startSeconds),\(endSeconds))"
+            }
+            
+            guard !validSegments.isEmpty else {
+                completion(false, "No valid segments could be parsed.")
+                return
+            }
+            
+            let videoFilter = "select='\(selectFilterExpression)',setpts=N/FRAME_RATE/TB"
+            let audioFilter = "aselect='\(selectFilterExpression)',asetpts=N/SR/TB"
+            
+            let filterComplex = "[0:v]\(videoFilter)[v]; [0:a]\(audioFilter)[a]; [v][a]concat=n=1:v=1:a=1[out]"
+            
+            let arguments = [
+                "-i", inputPath,
+                "-filter_complex", filterComplex,
+                "-map", "[out]",
+                "-c:v", "libx264", // Re-encode is necessary for this filter_complex
+                "-c:a", "aac",
+                "-pix_fmt", "yuv420p",
+                "-y",
+                outputPath
+            ]
+            
+            runFFmpeg(arguments: arguments, completion: completion)
+            
+        } else {
+            completion(false, "Please specify either a single Trim range or at least one Cut Segment.")
+        }
+    } 
         // Use -ss before -i for fast, but inaccurate seeking (frame-accurate is not needed for a simple trim)
         if !startTime.isEmpty {
             arguments += ["-ss", startTime]
@@ -506,6 +622,48 @@ class FFmpegWrapper: ObservableObject {
         }
     }
     
+    // MARK: - Video Preview Generation
+    
+    /// Generates a low-resolution proxy video for scrubbing in the UI
+    func generateProxyVideo(
+        inputPath: String,
+        outputPath: String,
+        completion: @escaping (Bool, String) -> Void
+    ) {
+        let arguments = [
+            "-i", inputPath,
+            "-vf", "scale='min(iw,480)':-2", // Scale to max 480px width
+            "-c:v", "libx264",
+            "-crf", "30", // High compression, low quality
+            "-preset", "veryfast",
+            "-c:a", "aac",
+            "-b:a", "64k",
+            "-y",
+            outputPath
+        ]
+        
+        runFFmpeg(arguments: arguments, completion: completion)
+    }
+    
+    /// Generates a single thumbnail at a specific timecode
+    func generateThumbnail(
+        inputPath: String,
+        outputPath: String,
+        timecode: String,
+        completion: @escaping (Bool, String) -> Void
+    ) {
+        let arguments = [
+            "-ss", timecode,
+            "-i", inputPath,
+            "-vframes", "1",
+            "-q:v", "2",
+            "-y",
+            outputPath
+        ]
+        
+        runFFmpeg(arguments: arguments, completion: completion)
+    }
+    
     // MARK: - Multi-Segment Cut
     
     struct CutSegment: Identifiable {
@@ -531,78 +689,7 @@ class FFmpegWrapper: ObservableObject {
         return seconds
     }
     
-    /// Cut multiple non-contiguous segments from a single media file
-    func cutSegments(
-        inputPath: String,
-        outputPath: String,
-        segments: [CutSegment],
-        completion: @escaping (Bool, String) -> Void
-    ) {
-        guard !segments.isEmpty else {
-            completion(false, "No segments provided.")
-            return
-        }
-        
-        // 1. Build the select filter expression
-        var selectFilterExpression = ""
-        var validSegments: [(start: Double, end: Double)] = []
-        
-        for segment in segments {
-            let startSeconds = timeStringToSeconds(segment.start) ?? 0.0
-            
-            // If end is empty, use a very large number (or the video duration if known)
-            var endSeconds: Double
-            if segment.end.isEmpty {
-                endSeconds = getVideoDimensions(from: inputPath)?.duration ?? 999999.0
-            } else {
-                endSeconds = timeStringToSeconds(segment.end) ?? 999999.0
-            }
-            
-            // Ensure start is before end
-            if startSeconds >= endSeconds {
-                continue
-            }
-            
-            validSegments.append((start: startSeconds, end: endSeconds))
-            
-            // FFmpeg select filter expression: between(t, start, end)
-            if !selectFilterExpression.isEmpty {
-                selectFilterExpression += "+"
-            }
-            selectFilterExpression += "between(t,\(startSeconds),\(endSeconds))"
-        }
-        
-        guard !validSegments.isEmpty else {
-            completion(false, "No valid segments could be parsed.")
-            return
-        }
-        
-        // 2. Build the filter_complex command
-        // [0:v]select='...',setpts=N/FRAME_RATE/TB[v]; [0:a]aselect='...',asetpts=N/SR/TB[a]; [v][a]concat=n=1:v=1:a=1[out]
-        
-        // The select filter expression is the same for video and audio
-        let videoFilter = "select='\(selectFilterExpression)',setpts=N/FRAME_RATE/TB"
-        let audioFilter = "aselect='\(selectFilterExpression)',asetpts=N/SR/TB"
-        
-        // Concatenation is implicit with the select filter, but we use concat to ensure a single output stream
-        // Since we are cutting non-contiguous segments, we need to use the concat filter to stitch them together.
-        // The number of inputs to concat is 1 because the select filter outputs a single stream with the selected parts.
-        let filterComplex = "[0:v]\(videoFilter)[v]; [0:a]\(audioFilter)[a]; [v][a]concat=n=1:v=1:a=1[out]"
-        
-        // 3. Build the final arguments
-        let arguments = [
-            "-i", inputPath,
-            "-filter_complex", filterComplex,
-            "-map", "[out]",
-            "-c:v", "libx264", // Re-encode is necessary for this filter_complex
-            "-c:a", "aac",
-            "-pix_fmt", "yuv420p",
-            "-y",
-            outputPath
-        ]
-        
-        runFFmpeg(arguments: arguments, completion: completion)
-    }
+
     
     // MARK: - Image Sequence to Video
     
@@ -942,3 +1029,60 @@ struct SupportedFormats {
         ("Fast Bilinear (Fastest)", "fast_bilinear")
     ]
 }
+
+
+    // MARK: - Segment Sequential Processing
+    
+    /// Recursively processes segments for separate export
+    private func processSegmentSequentially(
+        inputPath: String,
+        baseOutputPath: String,
+        segments: [(start: Double, end: Double)],
+        currentIndex: Int,
+        completion: @escaping (Bool, String) -> Void
+    ) {
+        guard currentIndex < segments.count else {
+            // Base case: all segments processed
+            completion(true, "All \(segments.count) segments exported successfully.")
+            return
+        }
+
+        let segment = segments[currentIndex]
+        let segmentNumber = currentIndex + 1
+        
+        // Construct output path for this segment
+        let inputURL = URL(fileURLWithPath: inputPath)
+        let baseOutputURL = URL(fileURLWithPath: baseOutputPath)
+        let segmentFileName = baseOutputURL.deletingPathExtension().lastPathComponent + "_segment_\(segmentNumber)." + baseOutputURL.pathExtension
+        let segmentOutputPath = baseOutputURL.deletingLastPathComponent().appendingPathComponent(segmentFileName).path
+
+        // FFmpeg arguments for single segment trim (fast, copy stream)
+        let arguments = [
+            "-ss", String(format: "%.3f", segment.start), // Start time
+            "-i", inputPath,
+            "-to", String(format: "%.3f", segment.end),   // End time
+            "-c", "copy",
+            "-y",
+            segmentOutputPath
+        ]
+        
+        DispatchQueue.main.async {
+            self.statusMessage = "Processing segment \(segmentNumber) of \(segments.count)..."
+        }
+
+        runFFmpeg(arguments: arguments) { success, message in
+            if success {
+                // Recurse to the next segment
+                self.processSegmentSequentially(
+                    inputPath: inputPath,
+                    baseOutputPath: baseOutputPath,
+                    segments: segments,
+                    currentIndex: currentIndex + 1,
+                    completion: completion
+                )
+            } else {
+                // Failure: stop and report
+                completion(false, "Failed to export segment \(segmentNumber): \(message)")
+            }
+        }
+    }

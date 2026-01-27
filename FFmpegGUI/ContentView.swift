@@ -27,17 +27,14 @@ struct ContentView: View {
                 TabButton(title: "Convert", icon: "arrow.triangle.2.circlepath", isSelected: selectedTab == 0) {
                     selectedTab = 0
                 }
-                TabButton(title: "Trim", icon: "scissors", isSelected: selectedTab == 1) {
+                TabButton(title: "Cut/Trim", icon: "scissors", isSelected: selectedTab == 1) {
                     selectedTab = 1
                 }
                 TabButton(title: "Merge", icon: "rectangle.stack.badge.plus", isSelected: selectedTab == 2) {
                     selectedTab = 2
                 }
-                TabButton(title: "Cut", icon: "scissors.badge.on.rectangle", isSelected: selectedTab == 3) {
+                TabButton(title: "Images → Video", icon: "photo.stack", isSelected: selectedTab == 3) {
                     selectedTab = 3
-                }
-                TabButton(title: "Images → Video", icon: "photo.stack", isSelected: selectedTab == 4) {
-                    selectedTab = 4
                 }
             }
             .padding(.horizontal)
@@ -53,12 +50,10 @@ struct ContentView: View {
                     case 0:
                         ConvertView(ffmpeg: ffmpeg, showAlert: $showAlert, alertTitle: $alertTitle, alertMessage: $alertMessage)
                     case 1:
-                        TrimView(ffmpeg: ffmpeg, showAlert: $showAlert, alertTitle: $alertTitle, alertMessage: $alertMessage)
+                        CutTrimView(ffmpeg: ffmpeg, showAlert: $showAlert, alertTitle: $alertTitle, alertMessage: $alertMessage)
                     case 2:
                         MergeView(ffmpeg: ffmpeg, showAlert: $showAlert, alertTitle: $alertTitle, alertMessage: $alertMessage)
                     case 3:
-                        CutView(ffmpeg: ffmpeg, showAlert: $showAlert, alertTitle: $alertTitle, alertMessage: $alertMessage)
-                    case 4:
                         ImageSequenceView(ffmpeg: ffmpeg, showAlert: $showAlert, alertTitle: $alertTitle, alertMessage: $alertMessage)
                     default:
                         ConvertView(ffmpeg: ffmpeg, showAlert: $showAlert, alertTitle: $alertTitle, alertMessage: $alertMessage)
@@ -278,17 +273,6 @@ struct ConvertView: View {
                                     .buttonStyle(.bordered)
                                     .controlSize(.small)
                                 }
-                                
-                                // Output Dimension Preview
-                                if let info = videoInfo, let w = Int(scaleWidth), let h = Int(scaleHeight) {
-                                    Text("Output will be: \(w)x\(h)")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                } else if let info = videoInfo, info.hasOddDimension {
-                                    Text("Output will be: \(info.width + 1)x\(info.height + 1) (Auto-corrected odd dimensions)")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
                             }
                         }
                     }
@@ -296,20 +280,9 @@ struct ConvertView: View {
                 }
             }
             
-            // Output Settings
-            GroupBox("Output Settings") {
+            // Codec Settings
+            GroupBox("Codec Settings") {
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("Format:")
-                            .frame(width: 100, alignment: .leading)
-                        Picker("", selection: $selectedOutputFormat) {
-                            ForEach(outputFormats, id: \.self) { format in
-                                Text(format.uppercased()).tag(format)
-                            }
-                        }
-                        .frame(width: 120)
-                    }
-                    
                     HStack {
                         Text("Video Codec:")
                             .frame(width: 100, alignment: .leading)
@@ -319,6 +292,15 @@ struct ConvertView: View {
                             }
                         }
                         .frame(width: 200)
+                        
+                        Text("Bitrate:")
+                            .frame(width: 60, alignment: .leading)
+                        TextField("Optional", text: $videoBitrate)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 100)
+                        Text("e.g., 5M, 5000k")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                     
                     HStack {
@@ -330,28 +312,15 @@ struct ConvertView: View {
                             }
                         }
                         .frame(width: 200)
-                    }
-                    
-                    HStack {
-                        Text("Video Bitrate:")
-                            .frame(width: 100, alignment: .leading)
-                        TextField("e.g., 5M, 2000k", text: $videoBitrate)
+                        
+                        Text("Bitrate:")
+                            .frame(width: 60, alignment: .leading)
+                        TextField("Optional", text: $audioBitrate)
                             .textFieldStyle(.roundedBorder)
-                            .frame(width: 150)
-                        Text("(optional)")
-                            .foregroundColor(.secondary)
+                            .frame(width: 100)
+                        Text("e.g., 192k, 320k")
                             .font(.caption)
-                    }
-                    
-                    HStack {
-                        Text("Audio Bitrate:")
-                            .frame(width: 100, alignment: .leading)
-                        TextField("e.g., 192k, 320k", text: $audioBitrate)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 150)
-                        Text("(optional)")
                             .foregroundColor(.secondary)
-                            .font(.caption)
                     }
                 }
                 .padding(8)
@@ -362,6 +331,13 @@ struct ConvertView: View {
                 HStack {
                     TextField("Select output location...", text: $outputPath)
                         .textFieldStyle(.roundedBorder)
+                    
+                    Picker("", selection: $selectedOutputFormat) {
+                        ForEach(outputFormats, id: \.self) { format in
+                            Text(".\(format)").tag(format)
+                        }
+                    }
+                    .frame(width: 80)
                     
                     Button("Browse...") {
                         selectOutputFile()
@@ -380,24 +356,6 @@ struct ConvertView: View {
                 .disabled(inputPath.isEmpty || outputPath.isEmpty || ffmpeg.isProcessing)
             }
         }
-        .onChange(of: inputPath) { newValue in
-            if !newValue.isEmpty {
-                // Run on a background thread to avoid blocking the UI
-                DispatchQueue.global(qos: .userInitiated).async {
-                    let info = ffmpeg.getVideoDimensions(from: newValue)
-                    DispatchQueue.main.async {
-                        self.videoInfo = info
-                        // Auto-populate scale fields with current dimensions if resize is on
-                        if let info = info, self.resizeVideo {
-                            self.scaleWidth = String(info.width)
-                            self.scaleHeight = String(info.height)
-                        }
-                    }
-                }
-            } else {
-                videoInfo = nil
-            }
-        }
     }
     
     private func selectInputFile() {
@@ -412,6 +370,9 @@ struct ConvertView: View {
             let inputURL = URL(fileURLWithPath: inputPath)
             let outputURL = inputURL.deletingPathExtension().appendingPathExtension(selectedOutputFormat)
             outputPath = outputURL.path
+            
+            // Get video info
+            videoInfo = ffmpeg.getVideoDimensions(from: inputPath)
         }
     }
     
@@ -428,21 +389,14 @@ struct ConvertView: View {
     private func startConversion() {
         let videoCodec = SupportedFormats.videoCodecs[selectedVideoCodec].1
         let audioCodec = SupportedFormats.audioCodecs[selectedAudioCodec].1
+        let scaleFilter = SupportedFormats.scaleFilters[selectedScaleFilter].1
         
-        var targetWidth: Int? = nil
-        var targetHeight: Int? = nil
-        var scaleFilter: String? = nil
-        var autoCorrectOdd = false
+        var w: Int? = nil
+        var h: Int? = nil
         
         if resizeVideo {
-            targetWidth = Int(scaleWidth)
-            targetHeight = Int(scaleHeight)
-            scaleFilter = SupportedFormats.scaleFilters[selectedScaleFilter].1
-            
-            // If both fields are empty, we still want to auto-correct odd dimensions if they exist
-            if targetWidth == nil && targetHeight == nil && videoInfo?.hasOddDimension == true {
-                autoCorrectOdd = true
-            }
+            w = Int(scaleWidth)
+            h = Int(scaleHeight)
         }
         
         ffmpeg.convertFormat(
@@ -452,10 +406,10 @@ struct ConvertView: View {
             audioCodec: audioCodec,
             videoBitrate: videoBitrate,
             audioBitrate: audioBitrate,
-            scaleWidth: targetWidth,
-            scaleHeight: targetHeight,
+            scaleWidth: w,
+            scaleHeight: h,
             scaleFilter: scaleFilter,
-            autoCorrectOdd: autoCorrectOdd
+            autoCorrectOdd: videoInfo?.hasOddDimension ?? false
         ) { success, message in
             alertTitle = success ? "Success" : "Error"
             alertMessage = message
@@ -464,9 +418,9 @@ struct ConvertView: View {
     }
 }
 
-// MARK: - Trim View
+// MARK: - Cut/Trim View
 
-struct TrimView: View {
+struct CutTrimView: View {
     @ObservedObject var ffmpeg: FFmpegWrapper
     @Binding var showAlert: Bool
     @Binding var alertTitle: String
@@ -474,12 +428,20 @@ struct TrimView: View {
     
     @State private var inputPath = ""
     @State private var outputPath = ""
-    @State private var startTime = ""
-    @State private var endTime = ""
+    @State private var videoInfo: FFmpegWrapper.VideoDimensionInfo? = nil
+    @State private var proxyVideoPath: String? = nil
+    
+    // Trim States
+    @State private var trimStartTime = ""
+    @State private var trimEndTime = ""
+    
+    // Cut States
+    @State private var segments: [FFmpegWrapper.CutSegment] = []
+    @State private var exportSegmentsSeparately = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Trim Video/Audio")
+            Text("Interactive Cut & Trim")
                 .font(.headline)
             
             // Input File
@@ -487,6 +449,14 @@ struct TrimView: View {
                 HStack {
                     TextField("Select input file...", text: $inputPath)
                         .textFieldStyle(.roundedBorder)
+                        .onChange(of: inputPath) { newValue in
+                            if !newValue.isEmpty {
+                                loadVideoInfoAndProxy(path: newValue)
+                            } else {
+                                videoInfo = nil
+                                proxyVideoPath = nil
+                            }
+                        }
                     
                     Button("Browse...") {
                         selectInputFile()
@@ -495,36 +465,119 @@ struct TrimView: View {
                 .padding(8)
             }
             
-            // Trim Settings
-            GroupBox("Trim Settings") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Time format: HH:MM:SS.ms (e.g., 00:01:30.500)")
+            // Video Preview and Controls (Phase 4.2)
+            if let info = videoInfo {
+                VStack(alignment: .leading, spacing: 10) {
+                    // Video Player Placeholder
+                    ZStack {
+                        Rectangle()
+                            .fill(Color.black)
+                            .aspectRatio(info.aspectRatio, contentMode: .fit)
+                            .frame(maxWidth: .infinity)
+                        
+                        Text("Video Preview Placeholder")
+                            .foregroundColor(.white)
+                    }
+                    
+                    // Video Info Caption
+                    Text("Input: \(info.resolutionString) (\(info.codec ?? "N/A"), \(String(format: "%.2f", info.frameRate ?? 0)) fps) - Duration: \(info.duration ?? 0, specifier: "%.2f")s")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     
+                    // Playback Controls and Progress Bar Placeholder
                     HStack {
-                        Text("Start Time:")
-                            .frame(width: 100, alignment: .leading)
-                        TextField("00:00:00", text: $startTime)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 150)
-                        Text("(optional)")
-                            .foregroundColor(.secondary)
-                            .font(.caption)
+                        Button("Play") {}
+                        Button("Pause") {}
+                        Button("Trim Mark") {}
+                        Button("Cut Mark") {}
+                        
+                        Spacer()
+                        
+                        Text("00:00:00 / \(info.duration ?? 0, specifier: "%.2f")s")
                     }
                     
-                    HStack {
-                        Text("End Time:")
-                            .frame(width: 100, alignment: .leading)
-                        TextField("End of file", text: $endTime)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 150)
-                        Text("(optional)")
-                            .foregroundColor(.secondary)
-                            .font(.caption)
-                    }
+                    // Progress Bar Placeholder
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.5))
+                        .frame(height: 10)
+                        .cornerRadius(5)
                 }
-                .padding(8)
+                .padding(.horizontal)
+            }
+            
+            // Trim and Cut Sections (Phase 4.3)
+            HStack(alignment: .top, spacing: 20) {
+                // Trim Section
+                GroupBox("Trim (Keep a single segment)") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Defines the final start and end of the video.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        HStack {
+                            Text("Start Time:")
+                                .frame(width: 80, alignment: .leading)
+                            TextField("00:00:00", text: $trimStartTime)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        
+                        HStack {
+                            Text("End Time:")
+                                .frame(width: 80, alignment: .leading)
+                            TextField("End of file", text: $trimEndTime)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                    }
+                    .padding(8)
+                }
+                
+                // Cut Section
+                GroupBox("Cut Segments (Remove or Export multiple parts)") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Segments to Keep:")
+                                .fontWeight(.bold)
+                            Spacer()
+                            Button("Add Segment") {
+                                segments.append(FFmpegWrapper.CutSegment(id: UUID(), start: "", end: ""))
+                            }
+                        }
+                        
+                        List {
+                            ForEach($segments) { $segment in
+                                HStack {
+                                    TextField("Start", text: $segment.start)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 80)
+                                    Text("-")
+                                    TextField("End", text: $segment.end)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 80)
+                                    
+                                    Spacer()
+                                    
+                                    Toggle("Export", isOn: $exportSegmentsSeparately) // Placeholder for individual segment export toggle
+                                        .labelsHidden()
+                                    
+                                    Button {
+                                        segments.removeAll { $0.id == segment.id }
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundColor(.red)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        .frame(minHeight: 100, maxHeight: 200)
+                        .border(Color.gray.opacity(0.3))
+                        
+                        Toggle("Export each segment as a separate file", isOn: $exportSegmentsSeparately)
+                            .font(.caption)
+                            .help("If enabled, each segment will be saved to a separate file instead of being merged.")
+                    }
+                    .padding(8)
+                }
             }
             
             // Output File
@@ -540,14 +593,34 @@ struct TrimView: View {
                 .padding(8)
             }
             
-            // Trim Button
+            // Process Button
             HStack {
                 Spacer()
-                Button("Trim") {
-                    startTrim()
+                Button("Process Cut/Trim") {
+                    startProcess()
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(inputPath.isEmpty || outputPath.isEmpty || ffmpeg.isProcessing)
+            }
+        }
+    }
+    
+    // MARK: - Helper Functions
+    
+    private func loadVideoInfoAndProxy(path: String) {
+        // 1. Get Video Info
+        videoInfo = ffmpeg.getVideoDimensions(from: path)
+        
+        // 2. Generate Proxy Video (Async)
+        let tempDir = FileManager.default.temporaryDirectory
+        let proxyPath = tempDir.appendingPathComponent("proxy_\(UUID().uuidString).mp4").path
+        
+        ffmpeg.generateProxyVideo(inputPath: path, outputPath: proxyPath) { success, message in
+            if success {
+                proxyVideoPath = proxyPath
+            } else {
+                // Handle error, maybe just show a static image
+                print("Failed to generate proxy video: \(message)")
             }
         }
     }
@@ -562,7 +635,7 @@ struct TrimView: View {
             inputPath = url.path
             // Auto-generate output path
             let inputURL = URL(fileURLWithPath: inputPath)
-            let outputURL = inputURL.deletingPathExtension().appendingPathExtension("trimmed.\(inputURL.pathExtension)")
+            let outputURL = inputURL.deletingPathExtension().appendingPathExtension("cut_trim.\(inputURL.pathExtension)")
             outputPath = outputURL.path
         }
     }
@@ -572,19 +645,48 @@ struct TrimView: View {
         let inputURL = URL(fileURLWithPath: inputPath)
         let ext = inputURL.pathExtension
         panel.allowedContentTypes = [UTType(filenameExtension: ext) ?? .movie]
-        panel.nameFieldStringValue = "trimmed.\(ext)"
+        panel.nameFieldStringValue = "cut_trim.\(ext)"
         
         if panel.runModal() == .OK, let url = panel.url {
             outputPath = url.path
         }
     }
     
-    private func startTrim() {
-        ffmpeg.trimVideo(
+    private func startProcess() {
+        // Basic validation: must have input path and output path
+        guard !inputPath.isEmpty && !outputPath.isEmpty else {
+            alertTitle = "Error"
+            alertMessage = "Please select both an input file and an output location."
+            showAlert = true
+            return
+        }
+        
+        // Check if both trim and cut segments are being used
+        let isTrimOnly = !trimStartTime.isEmpty || !trimEndTime.isEmpty
+        let isMultiCut = !segments.isEmpty
+        
+        if isTrimOnly && isMultiCut {
+            alertTitle = "Error"
+            alertMessage = "Cannot perform both single Trim and Multi-Segment Cut simultaneously. Please use one or the other."
+            showAlert = true
+            return
+        }
+        
+        // Check if any operation is selected
+        if !isTrimOnly && !isMultiCut {
+            alertTitle = "Error"
+            alertMessage = "Please specify either a single Trim range or at least one Cut Segment."
+            showAlert = true
+            return
+        }
+        
+        ffmpeg.processCutTrim(
             inputPath: inputPath,
             outputPath: outputPath,
-            startTime: startTime,
-            endTime: endTime
+            trimStartTime: trimStartTime,
+            trimEndTime: trimEndTime,
+            segments: segments,
+            exportSegmentsSeparately: exportSegmentsSeparately
         ) { success, message in
             alertTitle = success ? "Success" : "Error"
             alertMessage = message
@@ -699,6 +801,15 @@ struct MergeView: View {
                                         }
                                     }
                                     .frame(width: 200)
+                                    
+                                    Text("Bitrate:")
+                                        .frame(width: 60, alignment: .leading)
+                                    TextField("Optional", text: $videoBitrate)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 100)
+                                    Text("e.g., 5M, 5000k")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
                                 }
                                 
                                 HStack {
@@ -710,31 +821,17 @@ struct MergeView: View {
                                         }
                                     }
                                     .frame(width: 200)
-                                }
-                                
-                                HStack {
-                                    Text("Video Bitrate:")
-                                        .frame(width: 100, alignment: .leading)
-                                    TextField("e.g., 5M, 2000k", text: $videoBitrate)
+                                    
+                                    Text("Bitrate:")
+                                        .frame(width: 60, alignment: .leading)
+                                    TextField("Optional", text: $audioBitrate)
                                         .textFieldStyle(.roundedBorder)
-                                        .frame(width: 150)
-                                    Text("(optional)")
-                                        .foregroundColor(.secondary)
+                                        .frame(width: 100)
+                                    Text("e.g., 192k, 320k")
                                         .font(.caption)
-                                }
-                                
-                                HStack {
-                                    Text("Audio Bitrate:")
-                                        .frame(width: 100, alignment: .leading)
-                                    TextField("e.g., 192k, 320k", text: $audioBitrate)
-                                        .textFieldStyle(.roundedBorder)
-                                        .frame(width: 150)
-                                    Text("(optional)")
                                         .foregroundColor(.secondary)
-                                        .font(.caption)
                                 }
                             }
-                            .padding(.leading, 10)
                         }
                     }
                     .padding(8)
@@ -753,11 +850,6 @@ struct MergeView: View {
                 }
                 .padding(8)
             }
-            
-            // Info
-            Text("Note: Files should have the same codec and resolution for best results.")
-                .font(.caption)
-                .foregroundColor(.secondary)
             
             // Merge Button
             HStack {
@@ -778,39 +870,23 @@ struct MergeView: View {
         panel.canChooseFiles = true
         
         if panel.runModal() == .OK {
-            let newFiles = panel.urls.map { $0.path }
-            inputFiles.append(contentsOf: newFiles)
+            let newPaths = panel.urls.map { $0.path }
+            inputFiles.append(contentsOf: newPaths)
             
-            // Analyze files on a background thread
-            DispatchQueue.global(qos: .userInitiated).async {
-                if let analysis = ffmpeg.analyzeVideoFiles(paths: inputFiles) {
-                    DispatchQueue.main.async {
-                        self.analysisResult = analysis
-                        // Automatically set re-encode flag if analysis suggests it
-                        if analysis.needsReencoding {
-                            self.useReencode = true
-                        }
-                    }
-                }
+            // Re-analyze files
+            analysisResult = ffmpeg.analyzeVideoFiles(paths: inputFiles)
+            
+            // Auto-generate output path if empty
+            if outputPath.isEmpty, let firstURL = panel.urls.first {
+                let outputURL = firstURL.deletingLastPathComponent().appendingPathComponent("merged.\(firstURL.pathExtension)")
+                outputPath = outputURL.path
             }
         }
     }
     
     private func removeFile(at index: Int) {
         inputFiles.remove(at: index)
-        // Re-analyze after removal
-        if inputFiles.count >= 2 {
-            DispatchQueue.global(qos: .userInitiated).async {
-                if let analysis = ffmpeg.analyzeVideoFiles(paths: inputFiles) {
-                    DispatchQueue.main.async {
-                        self.analysisResult = analysis
-                    }
-                }
-            }
-        } else {
-            analysisResult = nil
-            useReencode = false
-        }
+        analysisResult = ffmpeg.analyzeVideoFiles(paths: inputFiles)
     }
     
     private func moveFiles(from source: IndexSet, to destination: Int) {
@@ -819,11 +895,8 @@ struct MergeView: View {
     
     private func selectOutputFile() {
         let panel = NSSavePanel()
-        if let firstFile = inputFiles.first {
-            let ext = URL(fileURLWithPath: firstFile).pathExtension
-            panel.allowedContentTypes = [UTType(filenameExtension: ext) ?? .movie]
-            panel.nameFieldStringValue = "merged.\(ext)"
-        }
+        panel.allowedContentTypes = [UTType(filenameExtension: "mp4") ?? .movie]
+        panel.nameFieldStringValue = "merged.mp4"
         
         if panel.runModal() == .OK, let url = panel.url {
             outputPath = url.path
@@ -831,10 +904,14 @@ struct MergeView: View {
     }
     
     private func startMerge() {
-        let videoCodec = useReencode ? SupportedFormats.videoCodecs[selectedVideoCodec].1 : nil
-        let audioCodec = useReencode ? SupportedFormats.audioCodecs[selectedAudioCodec].1 : nil
-        let videoBitrate = useReencode ? self.videoBitrate : nil
-        let audioBitrate = useReencode ? self.audioBitrate : nil
+        let videoCodec = SupportedFormats.videoCodecs[selectedVideoCodec].1
+        let audioCodec = SupportedFormats.audioCodecs[selectedAudioCodec].1
+        
+        // Use most common resolution as target if re-encoding is on
+        var targetRes: (width: Int, height: Int)? = nil
+        if useReencode, let analysis = analysisResult {
+            targetRes = analysis.mostCommonResolution
+        }
         
         ffmpeg.mergeFiles(
             inputPaths: inputFiles,
@@ -844,183 +921,7 @@ struct MergeView: View {
             audioCodec: audioCodec,
             videoBitrate: videoBitrate,
             audioBitrate: audioBitrate,
-            targetResolution: analysisResult?.mostCommonResolution
-        ) { success, message in
-            alertTitle = success ? "Success" : "Error"
-            alertMessage = message
-            showAlert = true
-        }
-    }
-}
-
-// MARK: - Cut View
-
-struct CutView: View {
-    @ObservedObject var ffmpeg: FFmpegWrapper
-    @Binding var showAlert: Bool
-    @Binding var alertTitle: String
-    @Binding var alertMessage: String
-    
-    @State private var inputPath = ""
-    @State private var outputPath = ""
-    @State private var segments: [FFmpegWrapper.CutSegment] = [FFmpegWrapper.CutSegment(id: UUID(), start: "", end: "")]
-    @State private var videoInfo: FFmpegWrapper.VideoDimensionInfo? = nil
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Cut Multiple Segments from Video/Audio")
-                .font(.headline)
-            
-            // Input File
-            GroupBox("Input File") {
-                HStack {
-                    TextField("Select input file...", text: $inputPath)
-                        .textFieldStyle(.roundedBorder)
-                    
-                    Button("Browse...") {
-                        selectInputFile()
-                    }
-                }
-                .padding(8)
-            }
-            
-            // Video Info
-            if let info = videoInfo {
-                HStack {
-                    Text("Duration:").fontWeight(.bold)
-                    Text(info.duration.map { String(format: "%.2f seconds", $0) } ?? "N/A")
-                    Text("Resolution:").fontWeight(.bold)
-                    Text(info.resolutionString)
-                }
-                .font(.caption)
-                .padding(.horizontal)
-            }
-            
-            // Segments List
-            GroupBox("Segments to Keep (Time format: HH:MM:SS.ms)") {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Start Time (ss)").frame(width: 150)
-                        Text("End Time (to)").frame(width: 150)
-                        Spacer()
-                        Button("Add Segment") {
-                            segments.append(FFmpegWrapper.CutSegment(id: UUID(), start: "", end: ""))
-                        }
-                    }
-                    .font(.caption)
-                    .padding(.horizontal, 4)
-                    
-                    List {
-                        ForEach($segments) { $segment in
-                            HStack {
-                                TextField("00:00:00", text: $segment.start)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 150)
-                                
-                                TextField("End of file", text: $segment.end)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 150)
-                                
-                                Spacer()
-                                
-                                Button {
-                                    if let index = segments.firstIndex(where: { $0.id == segment.id }) {
-                                        segments.remove(at: index)
-                                    }
-                                } label: {
-                                    Image(systemName: "minus.circle.fill")
-                                        .foregroundColor(.red)
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(segments.count == 1)
-                            }
-                        }
-                    }
-                    .frame(minHeight: 150)
-                    .border(Color.gray.opacity(0.3))
-                }
-                .padding(8)
-            }
-            
-            // Output File
-            GroupBox("Output File") {
-                HStack {
-                    TextField("Select output location...", text: $outputPath)
-                        .textFieldStyle(.roundedBorder)
-                    
-                    Button("Browse...") {
-                        selectOutputFile()
-                    }
-                }
-                .padding(8)
-            }
-            
-            // Cut Button
-            HStack {
-                Spacer()
-                Button("Cut Segments") {
-                    startCut()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(inputPath.isEmpty || outputPath.isEmpty || segments.isEmpty || ffmpeg.isProcessing)
-            }
-        }
-        .onChange(of: inputPath) { newValue in
-            if !newValue.isEmpty {
-                DispatchQueue.global(qos: .userInitiated).async {
-                    let info = ffmpeg.getVideoDimensions(from: newValue)
-                    DispatchQueue.main.async {
-                        self.videoInfo = info
-                    }
-                }
-            } else {
-                videoInfo = nil
-            }
-        }
-    }
-    
-    private func selectInputFile() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        
-        if panel.runModal() == .OK, let url = panel.url {
-            inputPath = url.path
-            // Auto-generate output path
-            let inputURL = URL(fileURLWithPath: inputPath)
-            let outputURL = inputURL.deletingPathExtension().appendingPathExtension("cut.\(inputURL.pathExtension)")
-            outputPath = outputURL.path
-        }
-    }
-    
-    private func selectOutputFile() {
-        let panel = NSSavePanel()
-        let inputURL = URL(fileURLWithPath: inputPath)
-        let ext = inputURL.pathExtension
-        panel.allowedContentTypes = [UTType(filenameExtension: ext) ?? .movie]
-        panel.nameFieldStringValue = "cut.\(ext)"
-        
-        if panel.runModal() == .OK, let url = panel.url {
-            outputPath = url.path
-        }
-    }
-    
-    private func startCut() {
-        // Basic validation
-        let validSegments = segments.filter { !$0.start.isEmpty || !$0.end.isEmpty }
-        
-        guard !validSegments.isEmpty else {
-            alertTitle = "Error"
-            alertMessage = "Please specify at least one start or end time for a segment."
-            showAlert = true
-            return
-        }
-        
-        ffmpeg.cutSegments(
-            inputPath: inputPath,
-            outputPath: outputPath,
-            segments: validSegments
+            targetResolution: targetRes
         ) { success, message in
             alertTitle = success ? "Success" : "Error"
             alertMessage = message
