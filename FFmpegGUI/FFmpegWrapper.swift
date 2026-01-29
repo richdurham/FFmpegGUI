@@ -304,8 +304,8 @@ class FFmpegWrapper: ObservableObject {
                 // Height specified, width auto with even constraint
                 scaleComponent = "scale=-2:\(h):flags=\(filter)"
             } else if autoCorrectOdd {
-                // Auto-correct: ensure even dimensions while preserving aspect ratio
-                scaleComponent = "scale='if(mod(iw,2),iw+1,iw)':'if(mod(ih,2),ih+1,ih)':flags=\(filter)"
+                // Auto-correct odd dimensions
+                scaleComponent = "scale='trunc(iw/2)*2':'trunc(ih/2)*2'"
             }
             
             if let scale = scaleComponent {
@@ -313,41 +313,38 @@ class FFmpegWrapper: ObservableObject {
             }
         }
         
+        if !videoFilters.isEmpty {
+            arguments += ["-vf", videoFilters.joined(separator: ",")]
+        }
+        
         // 2. Codec and Bitrate Logic
         if let vc = videoCodec, vc != "copy" {
             arguments += ["-c:v", vc]
-        } else if videoCodec == "copy" {
+            if let vb = videoBitrate, !vb.isEmpty {
+                arguments += ["-b:v", vb]
+            }
+        } else {
             arguments += ["-c:v", "copy"]
         }
         
         if let ac = audioCodec, ac != "copy" {
             arguments += ["-c:a", ac]
-        } else if audioCodec == "copy" {
+            if let ab = audioBitrate, !ab.isEmpty {
+                arguments += ["-b:a", ab]
+            }
+        } else {
             arguments += ["-c:a", "copy"]
         }
         
-        if let vb = videoBitrate, !vb.isEmpty {
-            arguments += ["-b:v", vb]
-        }
-        
-        if let ab = audioBitrate, !ab.isEmpty {
-            arguments += ["-b:a", ab]
-        }
-        
-        // 3. Apply filters
-        if !videoFilters.isEmpty {
-            arguments += ["-vf", videoFilters.joined(separator: ",")]
-        }
-        
-        // 4. Output path
-        arguments += [outputPath]
+        // 3. Output Path
+        arguments.append(outputPath)
         
         runFFmpeg(arguments: arguments, completion: completion)
     }
     
-    // MARK: - Trim Video/Audio    // MARK: - Unified Cut/Trim/Segment Processing
+    // MARK: - Unified Cut/Trim
     
-    /// Unified function to handle single trim or multi-segment cut operations
+    /// Processes a single trim or multiple cuts on a video file.
     func processCutTrim(
         inputPath: String,
         outputPath: String,
@@ -357,29 +354,21 @@ class FFmpegWrapper: ObservableObject {
         exportSegmentsSeparately: Bool,
         completion: @escaping (Bool, String) -> Void
     ) {
-        // 1. Determine the operation type
         let isTrimOnly = !trimStartTime.isEmpty || !trimEndTime.isEmpty
         let isMultiCut = !segments.isEmpty
-        
-        if isTrimOnly && isMultiCut {
-            completion(false, "Cannot perform both single Trim and Multi-Segment Cut simultaneously. Please use one or the other.")
-            return
-        }
-        
+
         if isTrimOnly {
             // Single Trim Operation
             var arguments = ["-i", inputPath, "-y"]
             
             if !trimStartTime.isEmpty {
-                arguments.insert(contentsOf: ["-ss", trimStartTime], at: 1) // -ss before -i for fast seeking
+                arguments += ["-ss", trimStartTime]
             }
-            
             if !trimEndTime.isEmpty {
-                arguments.append(contentsOf: ["-to", trimEndTime])
+                arguments += ["-to", trimEndTime]
             }
             
-            // Stream copy for speed and quality
-            arguments.append(contentsOf: ["-c", "copy", outputPath])
+            arguments += ["-c", "copy", outputPath]
             
             runFFmpeg(arguments: arguments, completion: completion)
             
@@ -387,9 +376,7 @@ class FFmpegWrapper: ObservableObject {
             // Multi-Segment Cut Operation
             
             if exportSegmentsSeparately {
-                // Separate Export Operation (Phase 4.4)
-                
-                // 1. Validate and convert segments to seconds
+                // Separate Export Operation
                 var validSegments: [(start: Double, end: Double)] = []
                 for segment in segments {
                     let startSeconds = timeStringToSeconds(segment.start) ?? 0.0
@@ -409,7 +396,6 @@ class FFmpegWrapper: ObservableObject {
                     return
                 }
                 
-                // 2. Start sequential processing
                 processSegmentSequentially(
                     inputPath: inputPath,
                     baseOutputPath: outputPath,
@@ -417,64 +403,55 @@ class FFmpegWrapper: ObservableObject {
                     currentIndex: 0,
                     completion: completion
                 )
-                return
-            }
-            
-            // Merged Cut Operation (Existing logic from old cutSegments)
-            var selectFilterExpression = ""
-            var validSegments: [(start: Double, end: Double)] = []
-            
-            for segment in segments {
-                let startSeconds = timeStringToSeconds(segment.start) ?? 0.0
                 
-                var endSeconds: Double
-                if segment.end.isEmpty {
-                    endSeconds = getVideoDimensions(from: inputPath)?.duration ?? 999999.0
-                } else {
-                    endSeconds = timeStringToSeconds(segment.end) ?? 999999.0
+            } else {
+                // Merged Cut Operation
+                var selectFilterExpression = ""
+                
+                for segment in segments {
+                    let startSeconds = timeStringToSeconds(segment.start) ?? 0.0
+                    var endSeconds: Double
+                    if segment.end.isEmpty {
+                        endSeconds = getVideoDimensions(from: inputPath)?.duration ?? 999999.0
+                    } else {
+                        endSeconds = timeStringToSeconds(segment.end) ?? 999999.0
+                    }
+                    
+                    if startSeconds >= endSeconds { continue }
+                    
+                    if !selectFilterExpression.isEmpty {
+                        selectFilterExpression += "+"
+                    }
+                    selectFilterExpression += "between(t,\(startSeconds),\(endSeconds))"
                 }
                 
-                if startSeconds >= endSeconds {
-                    continue
+                guard !selectFilterExpression.isEmpty else {
+                    completion(false, "No valid segments could be parsed.")
+                    return
                 }
                 
-                validSegments.append((start: startSeconds, end: endSeconds))
+                let videoFilter = "select='\(selectFilterExpression)',setpts=N/FRAME_RATE/TB"
+                let audioFilter = "aselect='\(selectFilterExpression)',asetpts=N/SR/TB"
+                let filterComplex = "[0:v]\(videoFilter)[v];[0:a]\(audioFilter)[a]"
                 
-                if !selectFilterExpression.isEmpty {
-                    selectFilterExpression += "+"
-                }
-                selectFilterExpression += "between(t,\(startSeconds),\(endSeconds))"
+                let arguments = [
+                    "-i", inputPath,
+                    "-filter_complex", filterComplex,
+                    "-map", "[v]",
+                    "-map", "[a]",
+                    "-c:v", "libx264",
+                    "-c:a", "aac",
+                    "-pix_fmt", "yuv420p",
+                    "-y",
+                    outputPath
+                ]
+                
+                runFFmpeg(arguments: arguments, completion: completion)
             }
-            
-            guard !validSegments.isEmpty else {
-                completion(false, "No valid segments could be parsed.")
-                return
-            }
-            
-            let videoFilter = "select='\(selectFilterExpression)',setpts=N/FRAME_RATE/TB"
-            let audioFilter = "aselect='\(selectFilterExpression)',asetpts=N/SR/TB"
-            
-            let filterComplex = "[0:v]\(videoFilter)[v]; [0:a]\(audioFilter)[a]; [v][a]concat=n=1:v=1:a=1[out]"
-            
-            let arguments = [
-                "-i", inputPath,
-                "-filter_complex", filterComplex,
-                "-map", "[out]",
-                "-c:v", "libx264", // Re-encode is necessary for this filter_complex
-                "-c:a", "aac",
-                "-pix_fmt", "yuv420p",
-                "-y",
-                outputPath
-            ]
-            
-            runFFmpeg(arguments: arguments, completion: completion)
-            
-        } else {
-            completion(false, "Please specify either a single Trim range or at least one Cut Segment.")
         }
     }
     
-    // MARK: - Merge Video/Audio Files
+    // MARK: - Merge Files
     
     /// Merge multiple media files
     func mergeFiles(
@@ -669,8 +646,6 @@ class FFmpegWrapper: ObservableObject {
         return seconds
     }
     
-
-    
     // MARK: - Image Sequence to Video
     
     struct ImageDimensionInfo {
@@ -790,191 +765,166 @@ class FFmpegWrapper: ObservableObject {
         scaleFilter: String = "lanczos",
         completion: @escaping (Bool, String) -> Void
     ) {
-        let fileManager = FileManager.default
-        let imageExtensions = SupportedFormats.imageFormats
+        let fullPatternPath = (inputFolder as NSString).appendingPathComponent(imagePattern)
         
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                let files = try fileManager.contentsOfDirectory(atPath: inputFolder)
-                
-                var imageFiles = files.filter { file in
-                    let ext = (file as NSString).pathExtension.lowercased()
-                    return imageExtensions.contains(ext)
-                }
-                
-                if imageFiles.isEmpty {
-                    completion(false, "No image files found in the selected folder")
-                    return
-                }
-                
-                // Sort files naturally (handles both "img1, img2, img10" and "img001, img002" correctly)
-                imageFiles.sort { file1, file2 in
-                    return file1.compare(file2, options: [.numeric, .caseInsensitive]) == .orderedAscending
-                }
-                
-                // Use concat demuxer with explicit file list for reliable frame ordering
-                let tempDir = fileManager.temporaryDirectory
-                let listFile = tempDir.appendingPathComponent("ffmpeg_image_list_\(UUID().uuidString).txt")
-                
-                // Calculate frame duration for concat demuxer
-                let frameDuration = 1.0 / Double(frameRate)
-                
-                // Build the concat file list with duration for each frame
-                var listContent = ""
-                for file in imageFiles {
-                    let fullPath = (inputFolder as NSString).appendingPathComponent(file)
-                    // Escape special characters in path
-                    let escapedPath = fullPath.replacingOccurrences(of: "'", with: "'\\''")
-                    listContent += "file '\(escapedPath)'\n"
-                    listContent += "duration \(frameDuration)\n"
-                }
-                
-                // Add the last file again without duration (FFmpeg concat demuxer quirk)
-                if let lastFile = imageFiles.last {
-                    let fullPath = (inputFolder as NSString).appendingPathComponent(lastFile)
-                    let escapedPath = fullPath.replacingOccurrences(of: "'", with: "'\\''")
-                    listContent += "file '\(escapedPath)'\n"
-                }
-                
-                try listContent.write(to: listFile, atomically: true, encoding: .utf8)
-                
-                var arguments = [
-                    "-f", "concat",
-                    "-safe", "0",
-                    "-i", listFile.path
-                ]
-                
-                // Add video filter for dimension correction if needed
-                if autoCorrectDimensions || targetWidth != nil || targetHeight != nil {
-                    var filterComponents: [String] = []
-                    
-                    if let w = targetWidth, let h = targetHeight {
-                        // Both dimensions specified - scale to exact size with even dimensions
-                        let evenW = w % 2 == 0 ? w : w + 1
-                        let evenH = h % 2 == 0 ? h : h + 1
-                        filterComponents.append("scale=\(evenW):\(evenH):flags=\(scaleFilter)")
-                    } else if let w = targetWidth {
-                        // Width specified, height auto with even constraint
-                        filterComponents.append("scale=\(w):-2:flags=\(scaleFilter)")
-                    } else if let h = targetHeight {
-                        // Height specified, width auto with even constraint
-                        filterComponents.append("scale=-2:\(h):flags=\(scaleFilter)")
-                    } else if autoCorrectDimensions {
-                        // Auto-correct: ensure even dimensions while preserving aspect ratio
-                        filterComponents.append("scale='if(mod(iw,2),iw+1,iw)':'if(mod(ih,2),ih+1,ih)':flags=\(scaleFilter)")
-                    }
-                    
-                    if !filterComponents.isEmpty {
-                        arguments += ["-vf", filterComponents.joined(separator: ",")]
-                    }
-                }
-                
-                arguments += [
-                    "-c:v", videoCodec,
-                    "-pix_fmt", pixelFormat,
-                    "-vsync", "vfr",
-                    "-y",
-                    outputPath
-                ]
-                
-                runFFmpeg(arguments: arguments) { success, message in
-                    // Clean up temp file
-                    try? fileManager.removeItem(at: listFile)
-                    completion(success, message)
-                }
-                
-            } catch {
-                completion(false, "Error reading folder: \(error.localizedDescription)")
+        var arguments = [
+            "-framerate", String(frameRate),
+            "-pattern_type", "glob",
+            "-i", fullPatternPath,
+            "-c:v", videoCodec,
+            "-pix_fmt", pixelFormat,
+            "-y",
+            outputPath
+        ]
+        
+        if autoCorrectDimensions {
+            var vfArgs: [String] = []
+            if let w = targetWidth, let h = targetHeight {
+                vfArgs.append("scale=\(w):\(h):flags=\(scaleFilter)")
+            } else {
+                vfArgs.append("scale='trunc(iw/2)*2':'trunc(ih/2)*2'")
             }
+            arguments.insert(contentsOf: ["-vf", vfArgs.joined(separator: ",")], at: arguments.count - 2)
         }
+        
+        runFFmpeg(arguments: arguments, completion: completion)
     }
     
-    // MARK: - Core FFmpeg Execution
+    // MARK: - Core Process Execution
     
-    /// Run FFmpeg with the given arguments
-    private func runFFmpeg(arguments: [String], completion: @escaping (Bool, String) -> Void) {
+    /// Generic FFmpeg command runner
+    func runFFmpeg(arguments: [String], completion: @escaping (Bool, String) -> Void) {
         DispatchQueue.main.async {
             self.isProcessing = true
             self.progress = 0.0
             self.statusMessage = "Processing..."
-            self.outputLog = "Running: ffmpeg \(arguments.joined(separator: " "))\n\n"
+            self.outputLog = "ffmpeg " + arguments.joined(separator: " ") + "\n\n"
         }
         
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self = self else { return }
-            
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: self.ffmpegPath)
-            process.arguments = arguments
-            
-            let outputPipe = Pipe()
-            let errorPipe = Pipe()
-            process.standardOutput = outputPipe
-            process.standardError = errorPipe
-            
-            self.currentProcess = process
-            
-            // Read stderr for progress (FFmpeg outputs to stderr)
-            errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-                let data = handle.availableData
-                if let output = String(data: data, encoding: .utf8), !output.isEmpty {
-                    DispatchQueue.main.async {
-                        self?.outputLog += output
-                        self?.parseProgress(from: output)
-                    }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ffmpegPath)
+        process.arguments = arguments
+        
+        let stdErrPipe = Pipe()
+        process.standardError = stdErrPipe
+        
+        stdErrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            if let output = String(data: data, encoding: .utf8) {
+                DispatchQueue.main.async {
+                    self?.outputLog += output
+                    self?.parseProgress(from: output)
                 }
             }
-            
+        }
+        
+        process.terminationHandler = { [weak self] process in
+            DispatchQueue.main.async {
+                self?.isProcessing = false
+                stdErrPipe.fileHandleForReading.readabilityHandler = nil
+                
+                if process.terminationStatus == 0 {
+                    self?.progress = 1.0
+                    self?.statusMessage = "Completed successfully."
+                    completion(true, "Operation completed successfully.")
+                } else {
+                    self?.statusMessage = "Failed. Check log for details."
+                    completion(false, self?.outputLog ?? "An unknown error occurred.")
+                }
+            }
+        }
+        
+        DispatchQueue.global(qos: .userInitiated).async {
             do {
                 try process.run()
-                process.waitUntilExit()
-                
-                // Stop reading
-                errorPipe.fileHandleForReading.readabilityHandler = nil
-                
-                let success = process.terminationStatus == 0
-                
-                DispatchQueue.main.async {
-                    self.isProcessing = false
-                    self.currentProcess = nil
-                    
-                    if success {
-                        self.progress = 1.0
-                        self.statusMessage = "Completed successfully!"
-                        completion(true, "Operation completed successfully")
-                    } else {
-                        self.statusMessage = "Failed with exit code \(process.terminationStatus)"
-                        completion(false, "FFmpeg exited with code \(process.terminationStatus)")
-                    }
-                }
-                
+                self.currentProcess = process
             } catch {
                 DispatchQueue.main.async {
                     self.isProcessing = false
-                    self.currentProcess = nil
-                    self.statusMessage = "Error: \(error.localizedDescription)"
-                    completion(false, error.localizedDescription)
+                    self.statusMessage = "Failed to start FFmpeg."
+                    completion(false, "Error: \(error.localizedDescription)")
                 }
             }
         }
     }
     
-    /// Parse FFmpeg output to extract progress information
+    /// Cancel the currently running FFmpeg process
+    func cancel() {
+        currentProcess?.terminate()
+    }
+    
+    /// Parse progress from FFmpeg's stderr output
     private func parseProgress(from output: String) {
-        // FFmpeg outputs time progress like "time=00:01:23.45"
-        if let range = output.range(of: "time=\\d{2}:\\d{2}:\\d{2}", options: .regularExpression) {
-            let timeStr = String(output[range]).replacingOccurrences(of: "time=", with: "")
-            statusMessage = "Processing: \(timeStr)"
+        // Example output: frame= 123 fps= 30.0 q=28.0 size=   1234kB time=00:00:04.10 bitrate=2468.0kbits/s speed=1.00x
+        let lines = output.components(separatedBy: .newlines)
+        for line in lines {
+            if line.hasPrefix("frame=") {
+                let components = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+                if let timeIndex = components.firstIndex(where: { $0.hasPrefix("time=") }) {
+                    let timeString = components[timeIndex].replacingOccurrences(of: "time=", with: "")
+                    if let _ = timeStringToSeconds(timeString) {
+                        // To calculate progress, we need the total duration.
+                        // This requires getting it from ffprobe first and storing it.
+                        // For now, we can't accurately calculate progress without total duration.
+                        // This is a placeholder for future improvement.
+                    }
+                }
+            }
         }
     }
     
-    /// Cancel the current operation
-    func cancel() {
-        currentProcess?.terminate()
+    // MARK: - Segment Sequential Processing
+    
+    /// Recursively processes segments for separate export
+    private func processSegmentSequentially(
+        inputPath: String,
+        baseOutputPath: String,
+        segments: [(start: Double, end: Double)],
+        currentIndex: Int,
+        completion: @escaping (Bool, String) -> Void
+    ) {
+        guard currentIndex < segments.count else {
+            // Base case: all segments processed
+            completion(true, "All \(segments.count) segments exported successfully.")
+            return
+        }
+
+        let segment = segments[currentIndex]
+        let segmentNumber = currentIndex + 1
+        
+        // Construct output path for this segment
+        let baseOutputURL = URL(fileURLWithPath: baseOutputPath)
+        let segmentFileName = baseOutputURL.deletingPathExtension().lastPathComponent + "_segment_\(segmentNumber)." + baseOutputURL.pathExtension
+        let segmentOutputPath = baseOutputURL.deletingLastPathComponent().appendingPathComponent(segmentFileName).path
+
+        // FFmpeg arguments for single segment trim (fast, copy stream)
+        let arguments = [
+            "-ss", String(format: "%.3f", segment.start), // Start time
+            "-i", inputPath,
+            "-to", String(format: "%.3f", segment.end),   // End time
+            "-c", "copy",
+            "-y",
+            segmentOutputPath
+        ]
+        
         DispatchQueue.main.async {
-            self.isProcessing = false
-            self.statusMessage = "Cancelled"
-            self.currentProcess = nil
+            self.statusMessage = "Processing segment \(segmentNumber) of \(segments.count)..."
+        }
+
+        self.runFFmpeg(arguments: arguments) { [weak self] success, message in
+            if success {
+                // Recurse to the next segment
+                self?.processSegmentSequentially(
+                    inputPath: inputPath,
+                    baseOutputPath: baseOutputPath,
+                    segments: segments,
+                    currentIndex: currentIndex + 1,
+                    completion: completion
+                )
+            } else {
+                // Failure: stop and report
+                completion(false, "Failed to export segment \(segmentNumber): \(message)")
+            }
         }
     }
 }
@@ -1009,61 +959,3 @@ struct SupportedFormats {
         ("Fast Bilinear (Fastest)", "fast_bilinear")
     ]
 }
-
-
-    // MARK: - Segment Sequential Processing
-    
-    /// Recursively processes segments for separate export
-    private func processSegmentSequentially(
-        inputPath: String,
-        baseOutputPath: String,
-        segments: [(start: Double, end: Double)],
-        currentIndex: Int,
-        completion: @escaping (Bool, String) -> Void
-    ) {
-        guard currentIndex < segments.count else {
-            // Base case: all segments processed
-            completion(true, "All \(segments.count) segments exported successfully.")
-            return
-        }
-
-        let segment = segments[currentIndex]
-        let segmentNumber = currentIndex + 1
-        
-        // Construct output path for this segment
-        let inputURL = URL(fileURLWithPath: inputPath)
-        let baseOutputURL = URL(fileURLWithPath: baseOutputPath)
-        let segmentFileName = baseOutputURL.deletingPathExtension().lastPathComponent + "_segment_\(segmentNumber)." + baseOutputURL.pathExtension
-        let segmentOutputPath = baseOutputURL.deletingLastPathComponent().appendingPathComponent(segmentFileName).path
-
-        // FFmpeg arguments for single segment trim (fast, copy stream)
-        let arguments = [
-            "-ss", String(format: "%.3f", segment.start), // Start time
-            "-i", inputPath,
-            "-to", String(format: "%.3f", segment.end),   // End time
-            "-c", "copy",
-            "-y",
-            segmentOutputPath
-        ]
-        
-        DispatchQueue.main.async {
-            self.statusMessage = "Processing segment \(segmentNumber) of \(segments.count)..."
-        }
-
-        runFFmpeg(arguments: arguments) { success, message in
-            if success {
-                // Recurse to the next segment
-                self.processSegmentSequentially(
-                    inputPath: inputPath,
-                    baseOutputPath: baseOutputPath,
-                    segments: segments,
-                    currentIndex: currentIndex + 1,
-                    completion: completion
-                )
-            } else {
-                // Failure: stop and report
-                completion(false, "Failed to export segment \(segmentNumber): \(message)")
-            }
-        }
-    }
-
