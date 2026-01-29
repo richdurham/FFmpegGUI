@@ -472,26 +472,6 @@ class FFmpegWrapper: ObservableObject {
         } else {
             completion(false, "Please specify either a single Trim range or at least one Cut Segment.")
         }
-    } 
-        // Use -ss before -i for fast, but inaccurate seeking (frame-accurate is not needed for a simple trim)
-        if !startTime.isEmpty {
-            arguments += ["-ss", startTime]
-        }
-        
-        arguments += ["-i", inputPath, "-y"]
-        
-        if !endTime.isEmpty {
-            // Use -to for duration/end time
-            arguments += ["-to", endTime]
-        }
-        
-        // Use copy codec for speed and quality preservation
-        arguments += ["-c", "copy"]
-        
-        // Output path
-        arguments += [outputPath]
-        
-        runFFmpeg(arguments: arguments, completion: completion)
     }
     
     // MARK: - Merge Video/Audio Files
@@ -1086,3 +1066,4 @@ struct SupportedFormats {
             }
         }
     }
+
