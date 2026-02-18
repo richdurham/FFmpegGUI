@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		8A1B2C3D4E5F6A7B8C9D0E62 /* FFmpegWrapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A1B2C3D4E5F6A7B8C9D0E60 /* FFmpegWrapperTests.swift */; };
 		8A1B2C3D4E5F6A7B8C9D0E1F /* FFmpegGUIApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A1B2C3D4E5F6A7B8C9D0E10 /* FFmpegGUIApp.swift */; };
 		8A1B2C3D4E5F6A7B8C9D0E20 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A1B2C3D4E5F6A7B8C9D0E21 /* ContentView.swift */; };
 		8A1B2C3D4E5F6A7B8C9D0E30 /* FFmpegWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A1B2C3D4E5F6A7B8C9D0E31 /* FFmpegWrapper.swift */; };
@@ -14,6 +15,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		8A1B2C3D4E5F6A7B8C9D0E60 /* FFmpegWrapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegWrapperTests.swift; sourceTree = "<group>"; };
+		8A1B2C3D4E5F6A7B8C9D0E76 /* FFmpegGUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FFmpegGUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8A1B2C3D4E5F6A7B8C9D0E00 /* FFmpegGUI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FFmpegGUI.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8A1B2C3D4E5F6A7B8C9D0E10 /* FFmpegGUIApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegGUIApp.swift; sourceTree = "<group>"; };
 		8A1B2C3D4E5F6A7B8C9D0E21 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -30,7 +33,32 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		8A1B2C3D4E5F6A7B8C9D0E72 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXContainerItemProxy section */
+		8A1B2C3D4E5F6A7B8C9D0E79 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8A1B2C3D4E5F6A7B8C9D0EF3 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8A1B2C3D4E5F6A7B8C9D0EFA;
+			remoteInfo = FFmpegGUI;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		8A1B2C3D4E5F6A7B8C9D0E78 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8A1B2C3D4E5F6A7B8C9D0EFA /* FFmpegGUI */;
+			targetProxy = 8A1B2C3D4E5F6A7B8C9D0E79 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXGroup section */
 		8A1B2C3D4E5F6A7B8C9D0EF0 = {
@@ -38,6 +66,7 @@
 			children = (
 				8A1B2C3D4E5F6A7B8C9D0EF1 /* FFmpegGUI */,
 				8A1B2C3D4E5F6A7B8C9D0EF2 /* Products */,
+				8A1B2C3D4E5F6A7B8C9D0E61 /* FFmpegGUITests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -53,10 +82,19 @@
 			path = FFmpegGUI;
 			sourceTree = "<group>";
 		};
+		8A1B2C3D4E5F6A7B8C9D0E61 /* FFmpegGUITests */ = {
+			isa = PBXGroup;
+			children = (
+				8A1B2C3D4E5F6A7B8C9D0E60 /* FFmpegWrapperTests.swift */,
+			);
+			path = FFmpegGUITests;
+			sourceTree = "<group>";
+		};
 		8A1B2C3D4E5F6A7B8C9D0EF2 /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				8A1B2C3D4E5F6A7B8C9D0E00 /* FFmpegGUI.app */,
+				8A1B2C3D4E5F6A7B8C9D0E76 /* FFmpegGUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -80,6 +118,23 @@
 			productName = FFmpegGUI;
 			productReference = 8A1B2C3D4E5F6A7B8C9D0E00 /* FFmpegGUI.app */;
 			productType = "com.apple.product-type.application";
+		};
+		8A1B2C3D4E5F6A7B8C9D0E70 /* FFmpegGUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8A1B2C3D4E5F6A7B8C9D0E73 /* Build configuration list for PBXNativeTarget "FFmpegGUITests" */;
+			buildPhases = (
+				8A1B2C3D4E5F6A7B8C9D0E71 /* Sources */,
+				8A1B2C3D4E5F6A7B8C9D0E72 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8A1B2C3D4E5F6A7B8C9D0E78 /* PBXTargetDependency */,
+			);
+			name = FFmpegGUITests;
+			productName = FFmpegGUITests;
+			productReference = 8A1B2C3D4E5F6A7B8C9D0E76 /* FFmpegGUITests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -110,6 +165,7 @@
 			projectRoot = "";
 			targets = (
 				8A1B2C3D4E5F6A7B8C9D0EFA /* FFmpegGUI */,
+				8A1B2C3D4E5F6A7B8C9D0E70 /* FFmpegGUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -136,9 +192,47 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		8A1B2C3D4E5F6A7B8C9D0E71 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8A1B2C3D4E5F6A7B8C9D0E62 /* FFmpegWrapperTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
+		8A1B2C3D4E5F6A7B8C9D0E74 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ffmpeggui.appTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FFmpegGUI.app/Contents/MacOS/FFmpegGUI";
+			};
+			name = Debug;
+		};
+		8A1B2C3D4E5F6A7B8C9D0E75 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ffmpeggui.appTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FFmpegGUI.app/Contents/MacOS/FFmpegGUI";
+			};
+			name = Release;
+		};
 		8A1B2C3D4E5F6A7B8C9D0EF5 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -312,6 +406,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		8A1B2C3D4E5F6A7B8C9D0E73 /* Build configuration list for PBXNativeTarget "FFmpegGUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8A1B2C3D4E5F6A7B8C9D0E74 /* Debug */,
+				8A1B2C3D4E5F6A7B8C9D0E75 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		8A1B2C3D4E5F6A7B8C9D0EF4 /* Build configuration list for PBXProject "FFmpegGUI" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
