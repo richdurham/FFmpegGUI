@@ -900,6 +900,14 @@ class FFmpegWrapper: ObservableObject {
             }
         }
     }
+
+    /// Validates if a bitrate string is in a format FFmpeg understands (e.g., "500k", "2M", "1000000")
+    static func isValidBitrate(_ bitrate: String) -> Bool {
+        let trimmed = bitrate.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return true }
+        let pattern = "^[0-9]+(\\.[0-9]+)?[kKmMgG]?$"
+        return trimmed.range(of: pattern, options: .regularExpression) != nil
+    }
 }
 
 // MARK: - Supported Formats

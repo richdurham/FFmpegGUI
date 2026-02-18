@@ -394,6 +394,20 @@ struct ConvertView: View {
             return
         }
         
+        if !FFmpegWrapper.isValidBitrate(videoBitrate) {
+            alertTitle = "Invalid Video Bitrate"
+            alertMessage = "Please enter a valid bitrate (e.g., 2M, 500k, 1000000)."
+            showAlert = true
+            return
+        }
+
+        if !FFmpegWrapper.isValidBitrate(audioBitrate) {
+            alertTitle = "Invalid Audio Bitrate"
+            alertMessage = "Please enter a valid bitrate (e.g., 128k, 256k, 320000)."
+            showAlert = true
+            return
+        }
+
         ffmpeg.convertFormat(
             inputPath: inputPath,
             outputPath: outputPath,
@@ -899,6 +913,22 @@ struct MergeView: View {
             return
         }
         
+        if useReencode {
+            if !FFmpegWrapper.isValidBitrate(videoBitrate) {
+                alertTitle = "Invalid Video Bitrate"
+                alertMessage = "Please enter a valid bitrate (e.g., 2M, 500k, 1000000)."
+                showAlert = true
+                return
+            }
+
+            if !FFmpegWrapper.isValidBitrate(audioBitrate) {
+                alertTitle = "Invalid Audio Bitrate"
+                alertMessage = "Please enter a valid bitrate (e.g., 128k, 256k, 320000)."
+                showAlert = true
+                return
+            }
+        }
+
         ffmpeg.mergeFiles(
             inputPaths: inputPaths,
             outputPath: outputPath,
