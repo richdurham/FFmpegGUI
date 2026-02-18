@@ -18,7 +18,7 @@ class FFmpegWrapper: ObservableObject {
     private var currentProcess: Process?
     
     /// Path to FFmpeg binary - checks common installation locations
-    var ffmpegPath: String {
+    lazy var ffmpegPath: String = {
         let possiblePaths = [
             "/opt/homebrew/bin/ffmpeg",  // Apple Silicon Homebrew
             "/usr/local/bin/ffmpeg",      // Intel Homebrew
@@ -34,7 +34,7 @@ class FFmpegWrapper: ObservableObject {
         
         // Default to hoping it's in PATH
         return "ffmpeg"
-    }
+    }()
     
     /// Path to FFprobe binary
     var ffprobePath: String {
