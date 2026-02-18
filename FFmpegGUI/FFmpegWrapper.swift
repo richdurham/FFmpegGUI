@@ -247,10 +247,16 @@ class FFmpegWrapper: ObservableObject {
         guard !fileInfos.isEmpty else { return nil }
         
         // Find most common resolution
-        let mostCommonEntry = resolutions.max { $0.value < $1.value }!
+        guard let mostCommonEntry = resolutions.max(by: { $0.value < $1.value }) else {
+            return nil
+        }
+
         let parts = mostCommonEntry.key.components(separatedBy: "x")
-        let mostCommonWidth = Int(parts[0]) ?? 0
-        let mostCommonHeight = Int(parts[1]) ?? 0
+        guard parts.count == 2,
+              let mostCommonWidth = Int(parts[0]),
+              let mostCommonHeight = Int(parts[1]) else {
+            return nil
+        }
         
         let hasMixedResolutions = resolutions.count > 1
         let hasMixedCodecs = codecs.count > 1
