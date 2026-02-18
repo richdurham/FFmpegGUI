@@ -5,7 +5,7 @@ Add video dimension detection and scaling capabilities to the Convert and Merge 
 
 ---
 
-## Phase 1: Video Dimension Detection
+## Phase 1: Video Dimension Detection (Completed)
 
 ### New Function: `getVideoDimensions()`
 **Location:** `FFmpegWrapper.swift`
@@ -39,7 +39,7 @@ ffprobe -v quiet -print_format json -show_streams "input.mp4"
 
 ---
 
-## Phase 2: Convert Tab Enhancements
+## Phase 2: Convert Tab Enhancements (Completed)
 
 ### UI Changes
 Add new GroupBox: **"Resize/Scale Options"**
@@ -76,11 +76,11 @@ Add new GroupBox: **"Resize/Scale Options"**
 - If only width: `scale=1920:-2` (auto height, even)
 - If only height: `scale=-2:1080` (auto width, even)
 - If both: `scale=1920:1080` (exact)
-- If auto-correct only: `scale='if(mod(iw,2),iw+1,iw)':'if(mod(ih,2),ih+1,ih)'`
+- If auto-correct only: `scale=\'trunc(iw/2)*2\':\'trunc(ih/2)*2\'`
 
 ---
 
-## Phase 3: Merge Tab Enhancements
+## Phase 3: Merge Tab Enhancements (Completed)
 
 ### Challenge
 FFmpeg concat demuxer requires **identical** codecs, resolutions, and frame rates.
@@ -167,7 +167,7 @@ ffmpeg -f concat -safe 0 -i list.txt -c copy output.mp4
 
 ---
 
-## Phase 4: Interactive Cut/Trim Tab Overhaul (Repair and Improvement)
+## Phase 4: Interactive Cut/Trim Tab Overhaul (Completed)
 
 ### Goal
 Merge Trim and Cut functionality into a single, interactive tab with a video preview and timecode marking system.
@@ -178,7 +178,7 @@ Merge Trim and Cut functionality into a single, interactive tab with a video pre
     - Responsive video player showing the selected input file.
     - Text caption indicating current dimensions.
 - **Control Bar:**
-    - Buttons: **Play**, **Pause**, **Trim Mark**, **Cut Mark**.
+    - Buttons: **Play**, **Pause**, **Set Start**, **Set End**, **Add Segment**.
 - **Progress Bar:**
     - Interactive scrubber with visual markers for Trim (yellow) and Cut (blue).
     - Displays current timecode.
@@ -190,19 +190,15 @@ Merge Trim and Cut functionality into a single, interactive tab with a video pre
     - Checkbox next to each segment: "Export as separate file."
 
 ### Backend Changes
-- **Video Preview Generation:** Implement a mechanism to generate a low-resolution, scrubbable preview (e.g., a series of thumbnails or a short, low-bitrate proxy video).
+- **Video Preview Generation:** Implemented a mechanism to generate a low-resolution, scrubbable proxy video (e.g., a series of thumbnails or a short, low-bitrate proxy video).
 - **Timecode Logic:**
-    - Implement logic for **Trim Mark** button:
-        - Adds yellow marker to progress bar.
-        - Updates Trim Start/End fields, handling the case where the second mark is earlier than the first (flipping the values and showing a caution).
-    - Implement logic for **Cut Mark** button:
-        - Adds blue marker to progress bar.
-        - Adds a new segment to the Cut Segments list.
+    - Implemented logic for **Set Start** and **Set End** buttons: Updates Trim Start/End fields with current playback time.
+    - Implemented logic for **Add Segment** button: Adds a new segment to the Cut Segments list with the current playback time.
 - **Processing Logic (Unified `processCutTrim`):**
-    1.  **Apply Trim:** Use `-ss` and `-to` to trim the video first, creating a temporary trimmed file.
-    2.  **Apply Cuts:** Use the temporary trimmed file as the input for the multi-segment cut logic.
-    3.  **Timecode Shifting:** The Cut Segments must be calculated relative to the start of the *trimmed* video.
-    4.  **Segment Export:** If "Export as separate file" is checked for a segment, run a separate FFmpeg command for that segment using the original file and the original timecodes.
+    1.  **Apply Trim:** Uses `-ss` and `-to` to trim the video first, creating a temporary trimmed file (if only trim is used).
+    2.  **Apply Cuts:** Uses the temporary trimmed file as the input for the multi-segment cut logic.
+    3.  **Timecode Shifting:** The Cut Segments are calculated relative to the start of the *trimmed* video.
+    4.  **Segment Export:** If "Export as separate file" is checked for a segment, runs a separate FFmpeg command for that segment using the original file and the original timecodes.
 
 ### FFmpeg Strategy
 - **Trim Only:** `ffmpeg -ss [start] -to [end] -i [input] -c copy [output]`
@@ -261,5 +257,3 @@ ffmpeg -i "input.mp4" -vn -c:a aac -b:a 192k -y "output_folder/input.m4a"
 4.  **FFmpegWrapper:** Update `runFFmpeg` to better handle batch progress reporting.
 5.  **Testing:** Test with various input formats and output settings.
 6.  **Documentation:** Update README with the new feature.
-
----

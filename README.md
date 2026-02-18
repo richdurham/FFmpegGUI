@@ -15,12 +15,13 @@ A native macOS application that provides a graphical user interface for common F
 - Choose audio codec (AAC, MP3, Opus, FLAC)
 - Optional bitrate control for video and audio
 
-	### 2. Cut/Trim (Interactive Video Editing)
-	- **Unified Interface**: Combines single-segment trimming and multi-segment cutting into one powerful tab.
-	- **Video Preview**: Includes a video player for visual confirmation and interactive scrubbing.
-	- **Multi-Segment Cutting**: Define multiple non-contiguous segments to keep, which are then seamlessly merged.
-	- **Separate Segment Export**: Option to export each defined segment as its own file (e.g., `video_segment_1.mp4`, `video_segment_2.mp4`).
-	- **Fast Trimming**: Single-segment trims use stream copy for speed and quality (no re-encoding).
+### 2. Cut/Trim (Interactive Video Editing)
+- **Unified Interface**: Combines single-segment trimming and multi-segment cutting into one powerful tab.
+- **Video Preview & Scrubbing**: Includes a functional video player for visual confirmation, interactive scrubbing, and real-time timecode display.
+- **Interactive Marking**: Easily set start/end points or add new segments by capturing the current playback position.
+- **Multi-Segment Cutting**: Define multiple non-contiguous segments to keep, which are then seamlessly merged.
+- **Separate Segment Export**: Option to export each defined segment as its own file (e.g., `video_segment_1.mp4`, `video_segment_2.mp4`).
+- **Fast Trimming**: Single-segment trims use stream copy for speed and quality (no re-encoding).
 
 ### 3. File Merging
 - Merge multiple video or audio files into one
@@ -86,14 +87,14 @@ xcodebuild -project FFmpegGUI.xcodeproj -scheme FFmpegGUI -configuration Release
 5. Click **Browse** to choose output location
 6. Click **Convert**
 
-	### Cutting and Trimming Videos
-	
-	1. Click the **Cut/Trim** tab
-	2. Select your input video file. The video preview will load.
-	3. **For a single trim**: Use the **Trim** section to set a Start and End time.
-	4. **For multiple cuts**: Use the **Cut Segments** section to add multiple Start/End time pairs.
-	5. Choose your output location.
-	6. Click **Process Cut/Trim**.
+### Cutting and Trimming Videos
+
+1. Click the **Cut/Trim** tab
+2. Select your input video file. The video preview will load.
+3. Use the video player to scrub to the desired start and end points.
+4. Click **Set Start** and **Set End** to define a single trim range, or click **Add Segment** to create multiple cut segments.
+5. Choose your output location.
+6. Click **Process Cut/Trim**.
 
 ### Merging Files
 
@@ -101,7 +102,7 @@ xcodebuild -project FFmpegGUI.xcodeproj -scheme FFmpegGUI -configuration Release
 2. Click **Add Files** to select files to merge
 3. Reorder files by dragging if needed
 4. Choose output location
-5. Click **Merge Files**
+5. Click **Merge Videos**
 
 > **Note:** For best results, files should have the same codec and resolution.
 
