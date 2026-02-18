@@ -125,7 +125,7 @@ class FFmpegWrapper: ObservableObject {
         let duration: String? // Duration from format is a fallback
     }
     
-    private func parseFrameRate(_ string: String?) -> Double? {
+    func parseFrameRate(_ string: String?) -> Double? {
         guard let string = string else { return nil }
         let parts = string.components(separatedBy: "/")
         if parts.count == 2, let num = Double(parts[0]), let den = Double(parts[1]), den != 0 {
