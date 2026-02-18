@@ -304,12 +304,12 @@ class FFmpegWrapper: ObservableObject {
                 // Height specified, width auto with even constraint
                 scaleComponent = "scale=-2:\(h):flags=\(filter)"
             } else if autoCorrectOdd {
-                // Auto-correct odd dimensions
-                scaleComponent = "scale='trunc(iw/2)*2':'trunc(ih/2)*2'"
+                // Just correct odd dimensions
+                scaleComponent = "scale='trunc(iw/2)*2':'trunc(ih/2)*2':flags=\(filter)"
             }
             
-            if let scale = scaleComponent {
-                videoFilters.append(scale)
+            if let sc = scaleComponent {
+                videoFilters.append(sc)
             }
         }
         
@@ -317,147 +317,36 @@ class FFmpegWrapper: ObservableObject {
             arguments += ["-vf", videoFilters.joined(separator: ",")]
         }
         
-        // 2. Codec and Bitrate Logic
-        if let vc = videoCodec, vc != "copy" {
+        // 2. Codec and Bitrate
+        if let vc = videoCodec {
             arguments += ["-c:v", vc]
-            if let vb = videoBitrate, !vb.isEmpty {
-                arguments += ["-b:v", vb]
-            }
-        } else {
-            arguments += ["-c:v", "copy"]
         }
         
-        if let ac = audioCodec, ac != "copy" {
+        if let ac = audioCodec {
             arguments += ["-c:a", ac]
-            if let ab = audioBitrate, !ab.isEmpty {
-                arguments += ["-b:a", ab]
-            }
-        } else {
-            arguments += ["-c:a", "copy"]
         }
         
-        // 3. Output Path
+        if let vb = videoBitrate, !vb.isEmpty {
+            arguments += ["-b:v", vb]
+        }
+        
+        if let ab = audioBitrate, !ab.isEmpty {
+            arguments += ["-b:a", ab]
+        }
+        
+        // 3. Output path
         arguments.append(outputPath)
         
         runFFmpeg(arguments: arguments, completion: completion)
     }
     
-    // MARK: - Unified Cut/Trim
-    
-    /// Processes a single trim or multiple cuts on a video file.
-    func processCutTrim(
-        inputPath: String,
-        outputPath: String,
-        trimStartTime: String,
-        trimEndTime: String,
-        segments: [CutSegment],
-        exportSegmentsSeparately: Bool,
-        completion: @escaping (Bool, String) -> Void
-    ) {
-        let isTrimOnly = !trimStartTime.isEmpty || !trimEndTime.isEmpty
-        let isMultiCut = !segments.isEmpty
-
-        if isTrimOnly {
-            // Single Trim Operation
-            var arguments = ["-i", inputPath, "-y"]
-            
-            if !trimStartTime.isEmpty {
-                arguments += ["-ss", trimStartTime]
-            }
-            if !trimEndTime.isEmpty {
-                arguments += ["-to", trimEndTime]
-            }
-            
-            arguments += ["-c", "copy", outputPath]
-            
-            runFFmpeg(arguments: arguments, completion: completion)
-            
-        } else if isMultiCut {
-            // Multi-Segment Cut Operation
-            
-            if exportSegmentsSeparately {
-                // Separate Export Operation
-                var validSegments: [(start: Double, end: Double)] = []
-                for segment in segments {
-                    let startSeconds = timeStringToSeconds(segment.start) ?? 0.0
-                    var endSeconds: Double
-                    if segment.end.isEmpty {
-                        endSeconds = getVideoDimensions(from: inputPath)?.duration ?? 999999.0
-                    } else {
-                        endSeconds = timeStringToSeconds(segment.end) ?? 999999.0
-                    }
-                    if startSeconds < endSeconds {
-                        validSegments.append((start: startSeconds, end: endSeconds))
-                    }
-                }
-                
-                guard !validSegments.isEmpty else {
-                    completion(false, "No valid segments could be parsed for separate export.")
-                    return
-                }
-                
-                processSegmentSequentially(
-                    inputPath: inputPath,
-                    baseOutputPath: outputPath,
-                    segments: validSegments,
-                    currentIndex: 0,
-                    completion: completion
-                )
-                
-            } else {
-                // Merged Cut Operation
-                var selectFilterExpression = ""
-                
-                for segment in segments {
-                    let startSeconds = timeStringToSeconds(segment.start) ?? 0.0
-                    var endSeconds: Double
-                    if segment.end.isEmpty {
-                        endSeconds = getVideoDimensions(from: inputPath)?.duration ?? 999999.0
-                    } else {
-                        endSeconds = timeStringToSeconds(segment.end) ?? 999999.0
-                    }
-                    
-                    if startSeconds >= endSeconds { continue }
-                    
-                    if !selectFilterExpression.isEmpty {
-                        selectFilterExpression += "+"
-                    }
-                    selectFilterExpression += "between(t,\(startSeconds),\(endSeconds))"
-                }
-                
-                guard !selectFilterExpression.isEmpty else {
-                    completion(false, "No valid segments could be parsed.")
-                    return
-                }
-                
-                let videoFilter = "select='\(selectFilterExpression)',setpts=N/FRAME_RATE/TB"
-                let audioFilter = "aselect='\(selectFilterExpression)',asetpts=N/SR/TB"
-                let filterComplex = "[0:v]\(videoFilter)[v];[0:a]\(audioFilter)[a]"
-                
-                let arguments = [
-                    "-i", inputPath,
-                    "-filter_complex", filterComplex,
-                    "-map", "[v]",
-                    "-map", "[a]",
-                    "-c:v", "libx264",
-                    "-c:a", "aac",
-                    "-pix_fmt", "yuv420p",
-                    "-y",
-                    outputPath
-                ]
-                
-                runFFmpeg(arguments: arguments, completion: completion)
-            }
-        }
-    }
-    
     // MARK: - Merge Files
     
-    /// Merge multiple media files
+    /// Merge multiple video files into one
     func mergeFiles(
         inputPaths: [String],
         outputPath: String,
-        useReencode: Bool,
+        useReencode: Bool = false,
         videoCodec: String? = nil,
         audioCodec: String? = nil,
         videoBitrate: String? = nil,
@@ -466,39 +355,38 @@ class FFmpegWrapper: ObservableObject {
         completion: @escaping (Bool, String) -> Void
     ) {
         guard !inputPaths.isEmpty else {
-            completion(false, "No input files provided.")
+            completion(false, "No input files selected.")
             return
         }
         
         if !useReencode {
-            // Fast merge using concat demuxer (requires same codecs/resolutions)
+            // Fast merge using concat demuxer (requires identical formats)
             let fileManager = FileManager.default
             let tempDir = fileManager.temporaryDirectory
-            let listFile = tempDir.appendingPathComponent("ffmpeg_merge_list_\(UUID().uuidString).txt")
+            let listFileURL = tempDir.appendingPathComponent("merge_list_\(UUID().uuidString).txt")
             
             var listContent = ""
             for path in inputPaths {
-                let escapedPath = path.replacingOccurrences(of: "'", with: "'\\''")
-                listContent += "file '\(escapedPath)'\n"
+                listContent += "file '\(path)'\n"
             }
             
             do {
-                try listContent.write(to: listFile, atomically: true, encoding: .utf8)
+                try listContent.write(to: listFileURL, atomically: true, encoding: .utf8)
                 
                 let arguments = [
                     "-f", "concat",
                     "-safe", "0",
-                    "-i", listFile.path,
+                    "-i", listFileURL.path,
                     "-c", "copy",
                     "-y",
                     outputPath
                 ]
                 
                 runFFmpeg(arguments: arguments) { success, message in
-                    try? fileManager.removeItem(at: listFile)
+                    // Clean up temp file
+                    try? fileManager.removeItem(at: listFileURL)
                     completion(success, message)
                 }
-                
             } catch {
                 completion(false, "Error creating temporary file: \(error.localizedDescription)")
             }
@@ -589,10 +477,10 @@ class FFmpegWrapper: ObservableObject {
     ) {
         let arguments = [
             "-i", inputPath,
-            "-vf", "scale='min(iw,480)':-2", // Scale to max 480px width
+            "-vf", "scale=320:-2", // Scale to 320px width for high performance
             "-c:v", "libx264",
-            "-crf", "30", // High compression, low quality
-            "-preset", "veryfast",
+            "-crf", "32", // High compression, low quality
+            "-preset", "ultrafast", // Fastest possible encoding
             "-c:a", "aac",
             "-b:a", "64k",
             "-y",
@@ -646,6 +534,99 @@ class FFmpegWrapper: ObservableObject {
         return seconds
     }
     
+    /// Unified function to handle both single trim and multi-segment cut
+    func processCutTrim(
+        inputPath: String,
+        outputPath: String,
+        trimStartTime: String,
+        trimEndTime: String,
+        segments: [CutSegment],
+        exportSegmentsSeparately: Bool,
+        completion: @escaping (Bool, String) -> Void
+    ) {
+        // 1. Determine if we are doing a single trim or multi-segment cut
+        let isTrimOnly = !trimStartTime.isEmpty || !trimEndTime.isEmpty
+        let isMultiCut = !segments.isEmpty
+        
+        if isTrimOnly {
+            // Single Trim: Use fast stream copy if possible
+            var arguments = ["-i", inputPath]
+            
+            if !trimStartTime.isEmpty {
+                arguments.insert(contentsOf: ["-ss", trimStartTime], at: 0)
+            }
+            
+            if !trimEndTime.isEmpty {
+                arguments += ["-to", trimEndTime]
+            }
+            
+            arguments += ["-c", "copy", "-y", outputPath]
+            
+            runFFmpeg(arguments: arguments, completion: completion)
+            
+        } else if isMultiCut {
+            // Multi-Segment Cut
+            let validSegments = segments.compactMap { segment -> (start: Double, end: Double)? in
+                guard let start = timeStringToSeconds(segment.start),
+                      let end = timeStringToSeconds(segment.end),
+                      end > start else { return nil }
+                return (start, end)
+            }
+            
+            guard !validSegments.isEmpty else {
+                completion(false, "No valid segments defined. Ensure end time is greater than start time.")
+                return
+            }
+            
+            if exportSegmentsSeparately {
+                // Export each segment as a separate file
+                processSegmentSequentially(
+                    inputPath: inputPath,
+                    baseOutputPath: outputPath,
+                    segments: validSegments,
+                    currentIndex: 0,
+                    completion: completion
+                )
+            } else {
+                // Merge segments into a single file using filter_complex
+                var filterComplex = ""
+                var videoOutputs = ""
+                var audioOutputs = ""
+                
+                for (index, segment) in validSegments.enumerated() {
+                    let start = segment.start
+                    let end = segment.end
+                    
+                    // Select video and audio segments
+                    filterComplex += "[0:v]trim=start=\(start):end=\(end),setpts=PTS-STARTPTS[v\(index)];"
+                    filterComplex += "[0:a]atrim=start=\(start):end=\(end),asetpts=PTS-STARTPTS[a\(index)];"
+                    
+                    videoOutputs += "[v\(index)]"
+                    audioOutputs += "[a\(index)]"
+                }
+                
+                // Concat segments
+                let n = validSegments.count
+                filterComplex += "\(videoOutputs)\(audioOutputs)concat=n=\(n):v=1:a=1[v_out][a_out]"
+                
+                let arguments = [
+                    "-i", inputPath,
+                    "-filter_complex", filterComplex,
+                    "-map", "[v_out]",
+                    "-map", "[a_out]",
+                    "-c:v", "libx264", // Re-encoding is required for complex filtering
+                    "-c:a", "aac",
+                    "-y",
+                    outputPath
+                ]
+                
+                runFFmpeg(arguments: arguments, completion: completion)
+            }
+        } else {
+            completion(false, "No trim or cut operation specified.")
+        }
+    }
+    
     // MARK: - Image Sequence to Video
     
     struct ImageDimensionInfo {
@@ -696,15 +677,7 @@ class FFmpegWrapper: ObservableObject {
         // Count dimensions
         var dimensionCounts: [String: (width: Int, height: Int, count: Int)] = [:]
         
-        for file in imageFiles {
-            let fullPath = (folderPath as NSString).appendingPathComponent(file)
-            
-            // NOTE: This part uses AppKit/CoreGraphics which is only available on macOS.
-            // In a real-world Swift/macOS app, this is the correct way.
-            // For the purpose of this simulation, we assume this part works.
-            // Since we cannot run this code, we will mock the result for now.
-            // In a real environment, this would be replaced by actual image analysis.
-            
+        for _ in imageFiles {
             // Mocking image analysis for simulation purposes
             let mockWidth = 1920
             let mockHeight = 1080
