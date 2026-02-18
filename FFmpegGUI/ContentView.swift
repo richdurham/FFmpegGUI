@@ -983,15 +983,22 @@ struct ImageSequenceView: View {
                     TextField("Select folder containing image sequence...", text: $inputFolderPath)
                         .textFieldStyle(.roundedBorder)
                         .onChange(of: inputFolderPath) { newPath in
-                            if !newPath.isEmpty {
-                                analysisResult = ffmpeg.analyzeImageDimensions(in: newPath)
-                                if let result = analysisResult {
-                                    autoCorrectDimensions = result.needsCorrection
-                                    targetWidth = String(result.mostCommonDimension.width)
-                                    targetHeight = String(result.mostCommonDimension.height)
+                            Task {
+                                if !newPath.isEmpty {
+                                    let result = await ffmpeg.analyzeImageDimensions(in: newPath)
+                                    await MainActor.run {
+                                        self.analysisResult = result
+                                        if let result = result {
+                                            self.autoCorrectDimensions = result.needsCorrection
+                                            self.targetWidth = String(result.mostCommonDimension.width)
+                                            self.targetHeight = String(result.mostCommonDimension.height)
+                                        }
+                                    }
+                                } else {
+                                    await MainActor.run {
+                                        self.analysisResult = nil
+                                    }
                                 }
-                            } else {
-                                analysisResult = nil
                             }
                         }
                     
