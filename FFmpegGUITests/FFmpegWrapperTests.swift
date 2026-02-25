@@ -65,4 +65,19 @@ final class FFmpegWrapperTests: XCTestCase {
         XCTAssertNotNil(result)
         XCTAssertEqual(result!, 24000.0 / 1001.0, accuracy: 0.0001)
     }
+
+    func testEscapeForConcat() {
+        let testCases = [
+            ("simple.mp4", "simple.mp4"),
+            ("my'file.mp4", "my'\\''file.mp4"),
+            ("Bob's Video's.mp4", "Bob'\\''s Video'\\''s.mp4"),
+            ("'leading", "'\\''leading"),
+            ("trailing'", "trailing'\\''")
+        ]
+
+        for (input, expected) in testCases {
+            let result = FFmpegWrapper.escapeForConcat(input)
+            XCTAssertEqual(result, expected, "Failed for input: \(input)")
+        }
+    }
 }
