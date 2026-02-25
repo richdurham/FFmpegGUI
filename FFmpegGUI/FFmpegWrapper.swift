@@ -7,6 +7,7 @@
 
 import Foundation
 import AppKit
+import ImageIO
 
 /// Manages FFmpeg command execution and provides methods for common operations
 class FFmpegWrapper: ObservableObject {
@@ -694,16 +695,21 @@ class FFmpegWrapper: ObservableObject {
             // Count dimensions
             var dimensionCounts: [String: (width: Int, height: Int, count: Int)] = [:]
 
-            for _ in imageFiles {
-                // Mocking image analysis for simulation purposes
-                let mockWidth = 1920
-                let mockHeight = 1080
-                let key = "\(mockWidth)x\(mockHeight)"
+            for fileURL in imageFiles {
+                guard let imageSource = CGImageSourceCreateWithURL(fileURL as CFURL, nil) else { continue }
+
+                let propertiesOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+                guard let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, propertiesOptions) as? [CFString: Any] else { continue }
+
+                guard let width = properties[kCGImagePropertyPixelWidth] as? Int,
+                      let height = properties[kCGImagePropertyPixelHeight] as? Int else { continue }
+
+                let key = "\(width)x\(height)"
                 if var existing = dimensionCounts[key] {
                     existing.count += 1
                     dimensionCounts[key] = existing
                 } else {
-                    dimensionCounts[key] = (mockWidth, mockHeight, 1)
+                    dimensionCounts[key] = (width, height, 1)
                 }
             }
 
