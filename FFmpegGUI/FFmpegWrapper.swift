@@ -503,8 +503,13 @@ class FFmpegWrapper: ObservableObject {
         timecode: String,
         completion: @escaping (Bool, String) -> Void
     ) {
+        guard FFmpegWrapper.isValidTimecode(timecode) else {
+            completion(false, "Invalid timecode format: \(timecode)")
+            return
+        }
+
         let arguments = [
-            "-ss", timecode,
+            "-ss", timecode.trimmingCharacters(in: .whitespacesAndNewlines),
             "-i", inputPath,
             "-vframes", "1",
             "-q:v", "2",
@@ -525,15 +530,33 @@ class FFmpegWrapper: ObservableObject {
     
     /// Helper to convert HH:MM:SS.ms to seconds (Double)
     private func timeStringToSeconds(_ timeString: String) -> Double? {
-        let components = timeString.split(separator: ":").map { String($0) }
+        let trimmed = timeString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        // Basic validation before parsing
+        guard FFmpegWrapper.isValidTimecode(trimmed) else { return nil }
+
+        let components = trimmed.split(separator: ":").map { String($0) }
         var seconds: Double = 0
         
         if components.count == 3, let h = Double(components[0]), let m = Double(components[1]), let s = Double(components[2]) {
             seconds = h * 3600 + m * 60 + s
         } else if components.count == 2, let m = Double(components[0]), let s = Double(components[1]) {
             seconds = m * 60 + s
-        } else if components.count == 1, let s = Double(components[0]) {
-            seconds = s
+        } else if components.count == 1 {
+            // Handle cases with units (s, ms, us) if present, though Double() might fail on them
+            let sString = String(components[0])
+            if sString.hasSuffix("ms") {
+                if let val = Double(sString.dropLast(2)) { return val / 1000.0 }
+            } else if sString.hasSuffix("us") {
+                if let val = Double(sString.dropLast(2)) { return val / 1000000.0 }
+            } else if sString.hasSuffix("s") {
+                if let val = Double(sString.dropLast(1)) { return val }
+            } else if let s = Double(sString) {
+                seconds = s
+            } else {
+                return nil
+            }
         } else {
             return nil
         }
@@ -550,6 +573,16 @@ class FFmpegWrapper: ObservableObject {
         exportSegmentsSeparately: Bool,
         completion: @escaping (Bool, String) -> Void
     ) {
+        // 0. Validate timecode inputs
+        if !trimStartTime.isEmpty && !FFmpegWrapper.isValidTimecode(trimStartTime) {
+            completion(false, "Invalid start time format: \(trimStartTime)")
+            return
+        }
+        if !trimEndTime.isEmpty && !FFmpegWrapper.isValidTimecode(trimEndTime) {
+            completion(false, "Invalid end time format: \(trimEndTime)")
+            return
+        }
+
         // 1. Determine if we are doing a single trim or multi-segment cut
         let isTrimOnly = !trimStartTime.isEmpty || !trimEndTime.isEmpty
         let isMultiCut = !segments.isEmpty
@@ -559,11 +592,11 @@ class FFmpegWrapper: ObservableObject {
             var arguments = ["-i", inputPath]
             
             if !trimStartTime.isEmpty {
-                arguments.insert(contentsOf: ["-ss", trimStartTime], at: 0)
+                arguments.insert(contentsOf: ["-ss", trimStartTime.trimmingCharacters(in: .whitespacesAndNewlines)], at: 0)
             }
             
             if !trimEndTime.isEmpty {
-                arguments += ["-to", trimEndTime]
+                arguments += ["-to", trimEndTime.trimmingCharacters(in: .whitespacesAndNewlines)]
             }
             
             arguments += ["-c", "copy", "-y", outputPath]
@@ -924,6 +957,16 @@ class FFmpegWrapper: ObservableObject {
         let trimmed = bitrate.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return true }
         let pattern = "^[0-9]+(\\.[0-9]+)?[kKmMgG]?$"
+        return trimmed.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    /// Validates if a timecode string is in a format FFmpeg understands (e.g., "00:01:30", "90.5", "1:20")
+    static func isValidTimecode(_ timecode: String) -> Bool {
+        let trimmed = timecode.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return true }
+
+        // Regex for [[HH:]MM:]SS[.m...] OR S+[.m...][s|ms|us]
+        let pattern = "^-?(([0-9]+:)?([0-5]?[0-9]:)?[0-5]?[0-9](\\.[0-9]+)?|([0-9]+)(\\.[0-9]+)?(s|ms|us)?)$"
         return trimmed.range(of: pattern, options: .regularExpression) != nil
     }
 }
