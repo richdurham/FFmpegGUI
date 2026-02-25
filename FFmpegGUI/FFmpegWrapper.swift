@@ -16,6 +16,9 @@ class FFmpegWrapper: ObservableObject {
     @Published var outputLog = ""
     
     private var currentProcess: Process?
+    private let logQueue = DispatchQueue(label: "com.ffmpegGUI.logQueue")
+    private var bufferedOutput = ""
+    private var isUpdateScheduled = false
     
     /// Path to FFmpeg binary - checks common installation locations
     lazy var ffmpegPath: String = {
@@ -801,10 +804,16 @@ class FFmpegWrapper: ObservableObject {
         
         stdErrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            if let output = String(data: data, encoding: .utf8) {
-                DispatchQueue.main.async {
-                    self?.outputLog += output
-                    self?.parseProgress(from: output)
+            guard !data.isEmpty, let output = String(data: data, encoding: .utf8) else { return }
+
+            self?.logQueue.async {
+                self?.bufferedOutput += output
+
+                if self?.isUpdateScheduled == false {
+                    self?.isUpdateScheduled = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        self?.flushLogBuffer()
+                    }
                 }
             }
         }
@@ -813,6 +822,7 @@ class FFmpegWrapper: ObservableObject {
             DispatchQueue.main.async {
                 self?.isProcessing = false
                 stdErrPipe.fileHandleForReading.readabilityHandler = nil
+                self?.flushLogBuffer()
                 
                 if process.terminationStatus == 0 {
                     self?.progress = 1.0
@@ -844,6 +854,20 @@ class FFmpegWrapper: ObservableObject {
         currentProcess?.terminate()
     }
     
+    /// Flushes the buffered output to the main log and parses progress
+    private func flushLogBuffer() {
+        logQueue.sync {
+            let output = bufferedOutput
+            bufferedOutput = ""
+            isUpdateScheduled = false
+
+            if !output.isEmpty {
+                self.outputLog += output
+                self.parseProgress(from: output)
+            }
+        }
+    }
+
     /// Parse progress from FFmpeg's stderr output
     private func parseProgress(from output: String) {
         // Example output: frame= 123 fps= 30.0 q=28.0 size=   1234kB time=00:00:04.10 bitrate=2468.0kbits/s speed=1.00x
