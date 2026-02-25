@@ -373,7 +373,7 @@ class FFmpegWrapper: ObservableObject {
             
             var listContent = ""
             for path in inputPaths {
-                listContent += "file '\(path)'\n"
+                listContent += "file '\(FFmpegWrapper.escapeForConcat(path))'\n"
             }
             
             do {
@@ -920,6 +920,12 @@ class FFmpegWrapper: ObservableObject {
     }
 
     /// Validates if a bitrate string is in a format FFmpeg understands (e.g., "500k", "2M", "1000000")
+    /// Escapes a file path for use in an FFmpeg concat list file.
+    /// Single quotes in the path must be escaped as ''''.
+    static func escapeForConcat(_ path: String) -> String {
+        return path.replacingOccurrences(of: "'", with: "'\\''")
+    }
+
     static func isValidBitrate(_ bitrate: String) -> Bool {
         let trimmed = bitrate.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return true }
