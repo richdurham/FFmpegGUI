@@ -373,7 +373,8 @@ class FFmpegWrapper: ObservableObject {
             
             var listContent = ""
             for path in inputPaths {
-                listContent += "file '\(path)'\n"
+                let escapedPath = escapePathForConcat(path)
+                listContent += "file '\(escapedPath)'\n"
             }
             
             do {
@@ -866,6 +867,16 @@ class FFmpegWrapper: ObservableObject {
     
     // MARK: - Segment Sequential Processing
     
+    /// Escapes a file path for use in an FFmpeg concat demuxer list file.
+    /// FFmpeg requires single quotes and backslashes to be escaped with a backslash.
+    /// Newlines are removed to prevent injection of new directives.
+    private func escapePathForConcat(_ path: String) -> String {
+        return path
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+            .replacingOccurrences(of: "\n", with: "")
+    }
+
     /// Recursively processes segments for separate export
     private func processSegmentSequentially(
         inputPath: String,
