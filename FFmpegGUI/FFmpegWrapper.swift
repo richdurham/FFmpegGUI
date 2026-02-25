@@ -7,6 +7,7 @@
 
 import Foundation
 import AppKit
+import ImageIO
 
 /// Manages FFmpeg command execution and provides methods for common operations
 class FFmpegWrapper: ObservableObject {
@@ -691,19 +692,36 @@ class FFmpegWrapper: ObservableObject {
 
             if imageFiles.isEmpty { return nil }
 
-            // Count dimensions
+            // Count dimensions by sampling a subset of files for performance
             var dimensionCounts: [String: (width: Int, height: Int, count: Int)] = [:]
 
-            for _ in imageFiles {
-                // Mocking image analysis for simulation purposes
-                let mockWidth = 1920
-                let mockHeight = 1080
-                let key = "\(mockWidth)x\(mockHeight)"
-                if var existing = dimensionCounts[key] {
-                    existing.count += 1
-                    dimensionCounts[key] = existing
-                } else {
-                    dimensionCounts[key] = (mockWidth, mockHeight, 1)
+            let maxSamples = 50
+            let totalFiles = imageFiles.count
+            let step = max(1, totalFiles / maxSamples)
+
+            var sampledIndices = Set<Int>()
+            for i in stride(from: 0, to: totalFiles, by: step) {
+                sampledIndices.insert(i)
+            }
+            sampledIndices.insert(totalFiles - 1) // Ensure the last file is always checked
+
+            for index in sampledIndices.sorted() {
+                let fileURL = imageFiles[index]
+
+                // Use ImageIO to get dimensions without loading the full image into memory
+                let options = [kCGImageSourceShouldCache: false] as CFDictionary
+                if let imageSource = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
+                   let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, options) as? [CFString: Any],
+                   let width = properties[kCGImagePropertyPixelWidth] as? Int,
+                   let height = properties[kCGImagePropertyPixelHeight] as? Int {
+
+                    let key = "\(width)x\(height)"
+                    if var existing = dimensionCounts[key] {
+                        existing.count += 1
+                        dimensionCounts[key] = existing
+                    } else {
+                        dimensionCounts[key] = (width, height, 1)
+                    }
                 }
             }
 
