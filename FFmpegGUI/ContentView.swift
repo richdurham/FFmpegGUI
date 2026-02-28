@@ -481,7 +481,7 @@ struct CutTrimView: View {
             }
             
             // Video Preview and Controls
-            if let info = videoInfo, let proxyPath = proxyVideoPath {
+            if videoInfo != nil, let proxyPath = proxyVideoPath {
                 VStack {
                     VideoPlayer(player: player)
                         .frame(maxWidth: 640, maxHeight: 360)
@@ -651,8 +651,15 @@ struct CutTrimView: View {
         let playerItem = AVPlayerItem(url: url)
         player = AVPlayer(playerItem: playerItem)
         
-        playerObserver = player?.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { [weak self] time in
-            self?.currentTime = time.seconds
+        playerObserver = player?.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { [player] time in
+            // Update the current time from the player periodically
+            // Ensure UI state updates occur on the main thread
+            DispatchQueue.main.async { [weak player] in
+                // Use the time provided by the callback to avoid needing to capture self
+                self.currentTime = time.seconds
+                // Optionally ensure the player is still alive to silence unused capture warnings
+                _ = player
+            }
         }
         
         // Get duration
@@ -983,7 +990,9 @@ struct ImageSequenceView: View {
                     TextField("Select folder containing image sequence...", text: $inputFolderPath)
                         .textFieldStyle(.roundedBorder)
                         .onChange(of: inputFolderPath) { newPath in
-                            Task {
+                            // Wrap the async call in a Task.detached to explicitly offload it
+                            // and then await its result to update the UI on the main actor.
+                            Task.detached {
                                 if !newPath.isEmpty {
                                     let result = await ffmpeg.analyzeImageDimensions(in: newPath)
                                     await MainActor.run {
@@ -1202,3 +1211,4 @@ struct StatusView: View {
         .padding()
     }
 }
+

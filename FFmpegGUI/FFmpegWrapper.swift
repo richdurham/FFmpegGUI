@@ -411,7 +411,7 @@ class FFmpegWrapper: ObservableObject {
             // 2. Filter complex for scaling and concat
             for (index, path) in inputPaths.enumerated() {
                 // Get info for the current file
-                guard let info = getVideoDimensions(from: path),
+                guard getVideoDimensions(from: path) != nil,
                       let targetRes = targetResolution else {
                     completion(false, "Could not get video dimensions for all files or target resolution is missing.")
                     return
@@ -635,7 +635,7 @@ class FFmpegWrapper: ObservableObject {
     
     // MARK: - Image Sequence to Video
     
-    struct ImageDimensionInfo {
+    struct ImageDimensionInfo: Codable { // Changed to Codable for potential future use with ffprobe
         let width: Int
         let height: Int
         let count: Int
@@ -665,79 +665,88 @@ class FFmpegWrapper: ObservableObject {
     }
     
     /// Analyze image dimensions in a folder
-    func analyzeImageDimensions(in folderPath: String) -> ImageAnalysisResult? {
-        let imageExtensions = Set(SupportedFormats.imageFormats)
-        let folderURL = URL(fileURLWithPath: folderPath)
+    func analyzeImageDimensions(in folderPath: String) async -> ImageAnalysisResult? {
+        await Task.detached(priority: .userInitiated) {
+            let imageExtensions = Set(SupportedFormats.imageFormats)
+            let folderURL = URL(fileURLWithPath: folderPath)
 
-        let fileManager = FileManager.default
+            let fileManager = FileManager.default
 
-        // Using enumerator for better performance on large directories
-        guard let enumerator = fileManager.enumerator(
-            at: folderURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
-        ) else {
-            return nil
-        }
-
-        var imageFiles: [URL] = []
-        for case let fileURL as URL in enumerator {
-            let ext = fileURL.pathExtension.lowercased()
-            if imageExtensions.contains(ext) {
-                imageFiles.append(fileURL)
+            // Using enumerator for better performance on large directories
+            guard let enumerator = fileManager.enumerator(
+                at: folderURL,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
+            ) else {
+                return nil
             }
-        }
 
-        if imageFiles.isEmpty { return nil }
+            var imageFiles: [URL] = []
+            // Collect all URLs from the enumerator synchronously before iterating
+            let enumeratedURLs: [URL] = enumerator.compactMap { $0 as? URL }
 
-        // Count dimensions
-        var dimensionCounts: [String: (width: Int, height: Int, count: Int)] = [:]
-
-        for _ in imageFiles {
-            // Mocking image analysis for simulation purposes
-            let mockWidth = 1920
-            let mockHeight = 1080
-            let key = "\(mockWidth)x\(mockHeight)"
-            if var existing = dimensionCounts[key] {
-                existing.count += 1
-                dimensionCounts[key] = existing
-            } else {
-                dimensionCounts[key] = (mockWidth, mockHeight, 1)
+            for fileURL in enumeratedURLs {
+                let ext = fileURL.pathExtension.lowercased()
+                if imageExtensions.contains(ext) {
+                    imageFiles.append(fileURL)
+                }
             }
-        }
 
-        // Find most common dimension
-        guard let mostCommon = dimensionCounts.values.max(by: { $0.count < $1.count }) else {
-            return nil
-        }
+            if imageFiles.isEmpty { return nil }
 
-        let hasOdd = mostCommon.width % 2 != 0 || mostCommon.height % 2 != 0
-        let mostCommonInfo = ImageDimensionInfo(
-            width: mostCommon.width,
-            height: mostCommon.height,
-            count: mostCommon.count,
-            hasOddDimension: hasOdd
-        )
+            // Count dimensions
+            var dimensionCounts: [String: (width: Int, height: Int, count: Int)] = [:]
 
-        let allDimensions = dimensionCounts.values.map { dim in
-            ImageDimensionInfo(
-                width: dim.width,
-                height: dim.height,
-                count: dim.count,
-                hasOddDimension: dim.width % 2 != 0 || dim.height % 2 != 0
+            // The following loop is still mocking the analysis.
+            // For a real implementation, you would use something like `NSImage` or FFprobe
+            // to actually get image dimensions. This process is synchronous but can be
+            // computationally intensive, so it's good to keep it off the main thread.
+            for _ in imageFiles {
+                // Mocking image analysis for simulation purposes
+                let mockWidth = 1920
+                let mockHeight = 1080
+                let key = "\(mockWidth)x\(mockHeight)"
+                if var existing = dimensionCounts[key] {
+                    existing.count += 1
+                    dimensionCounts[key] = existing
+                } else {
+                    dimensionCounts[key] = (mockWidth, mockHeight, 1)
+                }
+            }
+
+            // Find most common dimension
+            guard let mostCommon = dimensionCounts.values.max(by: { $0.count < $1.count }) else {
+                return nil
+            }
+
+            let hasOdd = mostCommon.width % 2 != 0 || mostCommon.height % 2 != 0
+            let mostCommonInfo = ImageDimensionInfo(
+                width: mostCommon.width,
+                height: mostCommon.height,
+                count: mostCommon.count,
+                hasOddDimension: hasOdd
             )
-        }.sorted { $0.count > $1.count }
 
-        let hasMixed = dimensionCounts.count > 1
-        let needsCorrection = hasOdd || hasMixed
+            let allDimensions = dimensionCounts.values.map { dim in
+                ImageDimensionInfo(
+                    width: dim.width,
+                    height: dim.height,
+                    count: dim.count,
+                    hasOddDimension: dim.width % 2 != 0 || dim.height % 2 != 0
+                )
+            }.sorted { $0.count > $1.count }
 
-        return ImageAnalysisResult(
-            mostCommonDimension: mostCommonInfo,
-            totalImages: imageFiles.count,
-            uniqueDimensions: allDimensions,
-            hasMixedSizes: hasMixed,
-            needsCorrection: needsCorrection
-        )
+            let hasMixed = dimensionCounts.count > 1
+            let needsCorrection = hasOdd || hasMixed
+
+            return ImageAnalysisResult(
+                mostCommonDimension: mostCommonInfo,
+                totalImages: imageFiles.count,
+                uniqueDimensions: allDimensions,
+                hasMixedSizes: hasMixed,
+                needsCorrection: needsCorrection
+            )
+        }.value // Await the result of the detached task
     }
     
     /// Convert a folder of images to a video file
@@ -952,7 +961,8 @@ struct SupportedFormats {
     static let scaleFilters = [
         ("Lanczos (Highest)", "lanczos"),
         ("Bicubic (Good)", "bicubic"),
-        ("Bilinear (Medium)", "bilinear"),
+        ("Bilinear (Medium)", "bicubic"),
         ("Fast Bilinear (Fastest)", "fast_bilinear")
     ]
 }
+
