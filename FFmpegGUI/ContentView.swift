@@ -737,6 +737,30 @@ struct CutTrimView: View {
             return
         }
         
+        // Validate timecode inputs
+        if !trimStartTime.isEmpty && !FFmpegWrapper.isValidTimecode(trimStartTime) {
+            alertTitle = "Invalid Start Time"
+            alertMessage = "Please enter a valid start time (e.g., 00:00:05 or 5.5)."
+            showAlert = true
+            return
+        }
+
+        if !trimEndTime.isEmpty && !FFmpegWrapper.isValidTimecode(trimEndTime) {
+            alertTitle = "Invalid End Time"
+            alertMessage = "Please enter a valid end time (e.g., 00:01:30 or 90)."
+            showAlert = true
+            return
+        }
+
+        for segment in segments {
+            if !FFmpegWrapper.isValidTimecode(segment.start) || (!segment.end.isEmpty && !FFmpegWrapper.isValidTimecode(segment.end)) {
+                alertTitle = "Invalid Segment Time"
+                alertMessage = "One or more segments have an invalid timecode format."
+                showAlert = true
+                return
+            }
+        }
+
         ffmpeg.processCutTrim(
             inputPath: inputPath,
             outputPath: outputPath,
