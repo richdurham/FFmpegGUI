@@ -373,7 +373,8 @@ class FFmpegWrapper: ObservableObject {
             
             var listContent = ""
             for path in inputPaths {
-                listContent += "file '\(path)'\n"
+                let escapedPath = escapePathForConcat(path)
+                listContent += "file '\(escapedPath)'\n"
             }
             
             do {
@@ -882,6 +883,17 @@ class FFmpegWrapper: ObservableObject {
     /// Cancel the currently running FFmpeg process
     func cancel() {
         currentProcess?.terminate()
+    }
+
+    /// Escapes a file path for use in an FFmpeg concat list file.
+    /// FFmpeg requires backslashes and single quotes to be escaped with a backslash.
+    /// Newlines are also removed to prevent directive injection.
+    private func escapePathForConcat(_ path: String) -> String {
+        return path
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+            .replacingOccurrences(of: "\n", with: "")
+            .replacingOccurrences(of: "\r", with: "")
     }
     
     /// Parse progress from FFmpeg's stderr output
