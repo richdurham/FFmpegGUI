@@ -9,6 +9,25 @@ import SwiftUI
 import UniformTypeIdentifiers
 import AVKit
 
+protocol AlertPresenting {
+    var alertTitle: String { get nonmutating set }
+    var alertMessage: String { get nonmutating set }
+    var showAlert: Bool { get nonmutating set }
+}
+
+extension AlertPresenting {
+    func validateBitrate(_ bitrate: String, title: String, message: String) -> Bool {
+        if !FFmpegWrapper.isValidBitrate(bitrate) {
+            alertTitle = title
+            alertMessage = message
+            showAlert = true
+            return false
+        }
+        return true
+    }
+}
+
+
 struct ContentView: View {
     @StateObject private var ffmpeg = FFmpegWrapper()
     @State private var selectedTab = 0
@@ -155,7 +174,7 @@ struct TabButton: View {
 
 // MARK: - Convert View
 
-struct ConvertView: View {
+struct ConvertView: View, AlertPresenting {
     @ObservedObject var ffmpeg: FFmpegWrapper
     @Binding var showAlert: Bool
     @Binding var alertTitle: String
@@ -394,19 +413,8 @@ struct ConvertView: View {
             return
         }
         
-        if !FFmpegWrapper.isValidBitrate(videoBitrate) {
-            alertTitle = "Invalid Video Bitrate"
-            alertMessage = "Please enter a valid bitrate (e.g., 2M, 500k, 1000000)."
-            showAlert = true
-            return
-        }
-
-        if !FFmpegWrapper.isValidBitrate(audioBitrate) {
-            alertTitle = "Invalid Audio Bitrate"
-            alertMessage = "Please enter a valid bitrate (e.g., 128k, 256k, 320000)."
-            showAlert = true
-            return
-        }
+        guard validateBitrate(videoBitrate, title: "Invalid Video Bitrate", message: "Please enter a valid bitrate (e.g., 2M, 500k, 1000000).") else { return }
+        guard validateBitrate(audioBitrate, title: "Invalid Audio Bitrate", message: "Please enter a valid bitrate (e.g., 128k, 256k, 320000).") else { return }
 
         ffmpeg.convertFormat(
             inputPath: inputPath,
@@ -425,11 +433,13 @@ struct ConvertView: View {
             showAlert = true
         }
     }
+
+
 }
 
 // MARK: - Cut/Trim View
 
-struct CutTrimView: View {
+struct CutTrimView: View, AlertPresenting {
     @ObservedObject var ffmpeg: FFmpegWrapper
     @Binding var showAlert: Bool
     @Binding var alertTitle: String
@@ -778,7 +788,7 @@ struct CutTrimView: View {
 
 // MARK: - Merge View
 
-struct MergeView: View {
+struct MergeView: View, AlertPresenting {
     @ObservedObject var ffmpeg: FFmpegWrapper
     @Binding var showAlert: Bool
     @Binding var alertTitle: String
@@ -945,19 +955,8 @@ struct MergeView: View {
         }
         
         if useReencode {
-            if !FFmpegWrapper.isValidBitrate(videoBitrate) {
-                alertTitle = "Invalid Video Bitrate"
-                alertMessage = "Please enter a valid bitrate (e.g., 2M, 500k, 1000000)."
-                showAlert = true
-                return
-            }
-
-            if !FFmpegWrapper.isValidBitrate(audioBitrate) {
-                alertTitle = "Invalid Audio Bitrate"
-                alertMessage = "Please enter a valid bitrate (e.g., 128k, 256k, 320000)."
-                showAlert = true
-                return
-            }
+            guard validateBitrate(videoBitrate, title: "Invalid Video Bitrate", message: "Please enter a valid bitrate (e.g., 2M, 500k, 1000000).") else { return }
+            guard validateBitrate(audioBitrate, title: "Invalid Audio Bitrate", message: "Please enter a valid bitrate (e.g., 128k, 256k, 320000).") else { return }
         }
 
         ffmpeg.mergeFiles(
@@ -975,11 +974,13 @@ struct MergeView: View {
             showAlert = true
         }
     }
+
+
 }
 
 // MARK: - Image Sequence View
 
-struct ImageSequenceView: View {
+struct ImageSequenceView: View, AlertPresenting {
     @ObservedObject var ffmpeg: FFmpegWrapper
     @Binding var showAlert: Bool
     @Binding var alertTitle: String
