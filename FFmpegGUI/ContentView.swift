@@ -370,7 +370,14 @@ struct ConvertView: View {
             outputPath = outputURL.path
             
             // Get video info for scaling
-            videoInfo = ffmpeg.getVideoDimensions(from: inputPath)
+            do {
+                videoInfo = try ffmpeg.getVideoDimensions(from: inputPath)
+            } catch {
+                videoInfo = nil
+                alertTitle = "Video Analysis Failed"
+                alertMessage = error.localizedDescription
+                showAlert = true
+            }
         }
     }
     
@@ -627,7 +634,14 @@ struct CutTrimView: View {
     // MARK: - Helper Functions
     
     private func loadVideoInfoAndProxy(path: String) {
-        videoInfo = ffmpeg.getVideoDimensions(from: path)
+        do {
+            videoInfo = try ffmpeg.getVideoDimensions(from: path)
+        } catch {
+            videoInfo = nil
+            alertTitle = "Video Analysis Failed"
+            alertMessage = error.localizedDescription
+            showAlert = true
+        }
         
         let tempDir = FileManager.default.temporaryDirectory
         let proxyPath = tempDir.appendingPathComponent("proxy_\(UUID().uuidString).mp4").path

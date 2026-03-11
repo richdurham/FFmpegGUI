@@ -7,6 +7,26 @@
 
 import Foundation
 import AppKit
+enum FFprobeError: Error, LocalizedError {
+    case executionFailed(Error)
+    case jsonDecodingFailed(Error)
+    case noVideoStreamFound
+    case invalidOutput
+
+    var errorDescription: String? {
+        switch self {
+        case .executionFailed(let error):
+            return "FFprobe execution failed: \(error.localizedDescription)"
+        case .jsonDecodingFailed(let error):
+            return "Failed to decode FFprobe output: \(error.localizedDescription)"
+        case .noVideoStreamFound:
+            return "No valid video stream was found in the file."
+        case .invalidOutput:
+            return "FFprobe returned invalid or unreadable data."
+        }
+    }
+}
+
 
 /// Manages FFmpeg command execution and provides methods for common operations
 class FFmpegWrapper: ObservableObject {
@@ -134,14 +154,14 @@ class FFmpegWrapper: ObservableObject {
         return Double(string)
     }
     
-    private func parseFFprobeOutput(_ data: Data) -> VideoDimensionInfo? {
+    private func parseFFprobeOutput(_ data: Data) throws -> VideoDimensionInfo {
         let decoder = JSONDecoder()
         do {
             let result = try decoder.decode(FFprobeResult.self, from: data)
             
             // Find the first video stream
             guard let videoStream = result.streams?.first(where: { $0.width != nil && $0.height != nil }) else {
-                return nil
+                throw FFprobeError.noVideoStreamFound
             }
             
             let width = videoStream.width ?? 0
@@ -163,12 +183,11 @@ class FFmpegWrapper: ObservableObject {
             )
             
         } catch {
-            print("Error decoding FFprobe JSON: \(error)")
-            return nil
+            throw FFprobeError.jsonDecodingFailed(error)
         }
     }
     
-    func getVideoDimensions(from videoPath: String) -> VideoDimensionInfo? {
+    func getVideoDimensions(from videoPath: String) throws -> VideoDimensionInfo {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffprobePath)
         process.arguments = [
@@ -187,10 +206,9 @@ class FFmpegWrapper: ObservableObject {
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             
-            return parseFFprobeOutput(data)
+            return try parseFFprobeOutput(data)
         } catch {
-            print("FFprobe execution error: \(error)")
-            return nil
+            throw FFprobeError.executionFailed(error)
         }
     }
     
@@ -228,7 +246,7 @@ class FFmpegWrapper: ObservableObject {
         var frameRates: Set<Double> = []
         
         for path in paths {
-            if let info = getVideoDimensions(from: path) {
+            if let info = try? getVideoDimensions(from: path) {
                 fileInfos[path] = info
                 
                 let resKey = info.resolutionString
@@ -411,7 +429,7 @@ class FFmpegWrapper: ObservableObject {
             // 2. Filter complex for scaling and concat
             for (index, path) in inputPaths.enumerated() {
                 // Get info for the current file
-                guard getVideoDimensions(from: path) != nil,
+                guard (try? getVideoDimensions(from: path)) != nil,
                       let targetRes = targetResolution else {
                     completion(false, "Could not get video dimensions for all files or target resolution is missing.")
                     return
