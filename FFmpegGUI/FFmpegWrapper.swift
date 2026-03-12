@@ -418,7 +418,7 @@ class FFmpegWrapper: ObservableObject {
         } else {
             // Smart merge using filter_complex (handles mixed formats)
             var arguments = ["-y"]
-            var filterComplex = ""
+            var filterComplex: [String] = []
             var mapOutputs: [String] = []
             
             // 1. Input files
@@ -445,19 +445,19 @@ class FFmpegWrapper: ObservableObject {
                 let setsarFilter = "setsar=1" // Set sample aspect ratio to 1:1
                 
                 // Video stream filter
-                filterComplex += "[\(index):v] \(scaleFilter), \(padFilter), \(setsarFilter) [v\(index)];"
+                filterComplex.append("[\(index):v] \(scaleFilter), \(padFilter), \(setsarFilter) [v\(index)];")
                 
                 // Audio stream filter (no-op, just to label)
-                filterComplex += "[\(index):a] aresample=async=1 [a\(index)];"
+                filterComplex.append("[\(index):a] aresample=async=1 [a\(index)];")
                 
                 mapOutputs.append("[v\(index)][a\(index)]")
             }
             
             // 3. Concat filter
             let n = inputPaths.count
-            filterComplex += mapOutputs.joined() + "concat=n=\(n):v=1:a=1[v_out][a_out]"
+            filterComplex.append(mapOutputs.joined() + "concat=n=\(n):v=1:a=1[v_out][a_out]")
             
-            arguments += ["-filter_complex", filterComplex]
+            arguments += ["-filter_complex", filterComplex.joined()]
             
             // 4. Output settings
             arguments += ["-map", "[v_out]", "-map", "[a_out]"]
