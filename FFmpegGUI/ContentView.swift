@@ -342,19 +342,8 @@ struct ConvertView: View, AlertPresenting {
                 .frame(width: 150)
                 .padding(8)
             }
-            
             // Output File
-            GroupBox("Output File") {
-                HStack {
-                    TextField("Select output location...", text: $inputPath)
-                        .textFieldStyle(.roundedBorder)
-                    
-                    Button("Browse...") {
-                        selectOutputFile()
-                    }
-                }
-                .padding(8)
-            }
+            OutputFileSelectionView(path: $outputPath, selectAction: selectOutputFile)
             
             // Process Button
             HStack {
@@ -617,17 +606,7 @@ struct CutTrimView: View, AlertPresenting {
             }
             
             // Output File
-            GroupBox("Output File") {
-                HStack {
-                    TextField("Select output location...", text: $outputPath)
-                        .textFieldStyle(.roundedBorder)
-                    
-                    Button("Browse...") {
-                        selectOutputFile()
-                    }
-                }
-                .padding(8)
-            }
+            OutputFileSelectionView(path: $outputPath, selectAction: selectOutputFile)
             
             // Process Button
             HStack {
@@ -896,18 +875,7 @@ struct MergeView: View, AlertPresenting {
                     .padding(8)
                 }
             }
-            
-            GroupBox("Output File") {
-                HStack {
-                    TextField("Select output location...", text: $outputPath)
-                        .textFieldStyle(.roundedBorder)
-                    
-                    Button("Browse...") {
-                        selectOutputFile()
-                    }
-                }
-                .padding(8)
-            }
+            OutputFileSelectionView(path: $outputPath, selectAction: selectOutputFile)
             
             HStack {
                 Spacer()
@@ -1141,18 +1109,7 @@ struct ImageSequenceView: View, AlertPresenting {
                 }
                 .padding(8)
             }
-            
-            GroupBox("Output File") {
-                HStack {
-                    TextField("Select output location...", text: $outputPath)
-                        .textFieldStyle(.roundedBorder)
-                    
-                    Button("Browse...") {
-                        selectOutputFile()
-                    }
-                }
-                .padding(8)
-            }
+            OutputFileSelectionView(path: $outputPath, selectAction: selectOutputFile)
             
             HStack {
                 Spacer()
