@@ -389,10 +389,7 @@ class FFmpegWrapper: ObservableObject {
             let tempDir = fileManager.temporaryDirectory
             let listFileURL = tempDir.appendingPathComponent("merge_list_\(UUID().uuidString).txt")
             
-            var listContent = ""
-            for path in inputPaths {
-                listContent += "file '\(path)'\n"
-            }
+            let listContent = inputPaths.isEmpty ? "" : inputPaths.map { "file '\(escapePathForConcat($0))'" }.joined(separator: "\n") + "\n"
             
             do {
                 try listContent.write(to: listFileURL, atomically: true, encoding: .utf8)
@@ -975,6 +972,13 @@ class FFmpegWrapper: ObservableObject {
                 completion(false, "Failed to export segment \(segmentNumber): \(message)")
             }
         }
+    }
+
+    /// Escapes single quotes and backslashes for FFmpeg's concat demuxer file list
+    private func escapePathForConcat(_ path: String) -> String {
+        return path.replacingOccurrences(of: "\\", with: "\\\\")
+                   .replacingOccurrences(of: "'", with: "\\'")
+                   .replacingOccurrences(of: "\n", with: "")
     }
 
     /// Validates if a bitrate string is in a format FFmpeg understands (e.g., "500k", "2M", "1000000")
