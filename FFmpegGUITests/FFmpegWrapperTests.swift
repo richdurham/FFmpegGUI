@@ -65,4 +65,39 @@ final class FFmpegWrapperTests: XCTestCase {
         XCTAssertNotNil(result)
         XCTAssertEqual(result!, 24000.0 / 1001.0, accuracy: 0.0001)
     }
+
+    func testTimeStringToSeconds_HHMMSS() {
+        XCTAssertEqual(sut.timeStringToSeconds("00:01:30.5"), 90.5)
+        XCTAssertEqual(sut.timeStringToSeconds("01:02:03"), 3723.0)
+    }
+
+    func testTimeStringToSeconds_MMSS() {
+        XCTAssertEqual(sut.timeStringToSeconds("01:30.5"), 90.5)
+        XCTAssertEqual(sut.timeStringToSeconds("10:00"), 600.0)
+    }
+
+    func testTimeStringToSeconds_SecondsOnly() {
+        XCTAssertEqual(sut.timeStringToSeconds("90.5"), 90.5)
+        XCTAssertEqual(sut.timeStringToSeconds("45"), 45.0)
+    }
+
+    func testTimeStringToSeconds_WithUnits() {
+        XCTAssertEqual(sut.timeStringToSeconds("90.5s"), 90.5)
+        XCTAssertEqual(sut.timeStringToSeconds("1500ms"), 1.5)
+        XCTAssertEqual(sut.timeStringToSeconds("1000000us"), 1.0)
+    }
+
+    func testTimeStringToSeconds_Whitespace() {
+        XCTAssertEqual(sut.timeStringToSeconds("  00:00:10  "), 10.0)
+    }
+
+    func testTimeStringToSeconds_Invalid() {
+        XCTAssertNil(sut.timeStringToSeconds(""))
+        XCTAssertNil(sut.timeStringToSeconds("invalid"))
+        XCTAssertNil(sut.timeStringToSeconds("1:60:00")) // minutes > 59 not allowed by regex
+    }
+
+    func testTimeStringToSeconds_Negative() {
+        XCTAssertEqual(sut.timeStringToSeconds("-10s"), -10.0)
+    }
 }
