@@ -128,12 +128,12 @@ class FFmpegWrapper: ObservableObject {
         }
     }
     
-    private struct FFprobeResult: Codable {
+    struct FFprobeResult: Codable {
         let streams: [FFprobeStream]?
         let format: FFprobeFormat?
     }
 
-    private struct FFprobeStream: Codable {
+    struct FFprobeStream: Codable {
         let width: Int?
         let height: Int?
         let codec_name: String?
@@ -141,7 +141,7 @@ class FFmpegWrapper: ObservableObject {
         let duration: String? // Duration from stream is often more accurate for video streams
     }
     
-    private struct FFprobeFormat: Codable {
+    struct FFprobeFormat: Codable {
         let duration: String? // Duration from format is a fallback
     }
     
@@ -154,7 +154,7 @@ class FFmpegWrapper: ObservableObject {
         return Double(string)
     }
     
-    private func parseFFprobeOutput(_ data: Data) throws -> VideoDimensionInfo {
+    func parseFFprobeOutput(_ data: Data) throws -> VideoDimensionInfo {
         let decoder = JSONDecoder()
         do {
             let result = try decoder.decode(FFprobeResult.self, from: data)
