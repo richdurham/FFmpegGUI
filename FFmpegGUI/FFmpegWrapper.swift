@@ -30,6 +30,13 @@ enum FFprobeError: Error, LocalizedError {
 
 /// Manages FFmpeg command execution and provides methods for common operations
 class FFmpegWrapper: ObservableObject {
+    private static let possibleFFmpegPaths = [
+        "/opt/homebrew/bin/ffmpeg",  // Apple Silicon Homebrew
+        "/usr/local/bin/ffmpeg",      // Intel Homebrew
+        "/usr/bin/ffmpeg",            // System installation
+        "/opt/local/bin/ffmpeg"       // MacPorts
+    ]
+
     @Published var isProcessing = false
     @Published var progress: Double = 0.0
     @Published var statusMessage = ""
@@ -39,14 +46,7 @@ class FFmpegWrapper: ObservableObject {
     
     /// Path to FFmpeg binary - checks common installation locations
     lazy var ffmpegPath: String = {
-        let possiblePaths = [
-            "/opt/homebrew/bin/ffmpeg",  // Apple Silicon Homebrew
-            "/usr/local/bin/ffmpeg",      // Intel Homebrew
-            "/usr/bin/ffmpeg",            // System installation
-            "/opt/local/bin/ffmpeg"       // MacPorts
-        ]
-        
-        for path in possiblePaths {
+        for path in Self.possibleFFmpegPaths {
             if FileManager.default.fileExists(atPath: path) {
                 return path
             }
@@ -63,21 +63,9 @@ class FFmpegWrapper: ObservableObject {
     
     /// Check if FFmpeg is installed
     func isFFmpegInstalled() -> Bool {
-        // Check if we can find FFmpeg in any of the common locations
-        let possiblePaths = [
-            "/opt/homebrew/bin/ffmpeg",  // Apple Silicon Homebrew
-            "/usr/local/bin/ffmpeg",      // Intel Homebrew
-            "/usr/bin/ffmpeg",            // System installation
-            "/opt/local/bin/ffmpeg"       // MacPorts
-        ]
-        
-        for path in possiblePaths {
-            if FileManager.default.fileExists(atPath: path) {
-                return true
-            }
-        }
-        
-        return false
+        // If ffmpegPath is not the fallback "ffmpeg", it means we found it at a known location.
+        // ffmpegPath already performs the file existence check for us.
+        return ffmpegPath != "ffmpeg"
     }
     
     /// Get FFmpeg version info
