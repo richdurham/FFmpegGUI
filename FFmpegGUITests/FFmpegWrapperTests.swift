@@ -65,4 +65,32 @@ final class FFmpegWrapperTests: XCTestCase {
         XCTAssertNotNil(result)
         XCTAssertEqual(result!, 24000.0 / 1001.0, accuracy: 0.0001)
     }
+
+    func testParseFFprobeOutput_DecodingError() {
+        // Table-driven tests for JSON decoding errors
+        let testCases: [(name: String, json: String)] = [
+            ("Invalid JSON syntax", "{"),
+            ("Incorrect type for streams", "{\"streams\": \"not an array\"}"),
+            ("Incorrect type for format", "{\"format\": 123}"),
+            ("Incorrect type for width", "{\"streams\": [{\"width\": \"not an int\", \"height\": 720}]}"),
+            ("Empty data", "")
+        ]
+
+        for testCase in testCases {
+            guard let data = testCase.json.data(using: .utf8) else {
+                XCTFail("Failed to create data for: \(testCase.name)")
+                continue
+            }
+
+            do {
+                _ = try sut.parseFFprobeOutput(data)
+                XCTFail("Expected error not thrown for: \(testCase.name)")
+            } catch let FFprobeError.jsonDecodingFailed(error) {
+                // Success: caught the expected error type
+                XCTAssertNotNil(error, "Internal error should not be nil for: \(testCase.name)")
+            } catch {
+                XCTFail("Wrong error type thrown for \(testCase.name): \(error)")
+            }
+        }
+    }
 }
