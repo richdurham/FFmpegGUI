@@ -714,16 +714,10 @@ class FFmpegWrapper: ObservableObject {
                 return nil
             }
 
-            var imageFiles: [URL] = []
-            // Collect all URLs from the enumerator synchronously before iterating
-            let enumeratedURLs: [URL] = enumerator.compactMap { $0 as? URL }
-
-            for fileURL in enumeratedURLs {
-                let ext = fileURL.pathExtension.lowercased()
-                if imageExtensions.contains(ext) {
-                    imageFiles.append(fileURL)
-                }
-            }
+            // Collect and filter image URLs from the enumerator
+            let imageFiles: [URL] = enumerator
+                .compactMap { $0 as? URL }
+                .filter { imageExtensions.contains($0.pathExtension.lowercased()) }
 
             if imageFiles.isEmpty { return nil }
 
