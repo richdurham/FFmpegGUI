@@ -18,7 +18,9 @@ class FFmpegWrapper: ObservableObject {
     private var currentProcess: Process?
     
     /// Path to FFmpeg binary - checks common installation locations
-    lazy var ffmpegPath: String = {
+    let ffmpegPath: String
+
+    init() {
         let possiblePaths = [
             "/opt/homebrew/bin/ffmpeg",  // Apple Silicon Homebrew
             "/usr/local/bin/ffmpeg",      // Intel Homebrew
@@ -26,15 +28,15 @@ class FFmpegWrapper: ObservableObject {
             "/opt/local/bin/ffmpeg"       // MacPorts
         ]
         
+        var foundPath = "ffmpeg"
         for path in possiblePaths {
             if FileManager.default.fileExists(atPath: path) {
-                return path
+                foundPath = path
+                break
             }
         }
-        
-        // Default to hoping it's in PATH
-        return "ffmpeg"
-    }()
+        self.ffmpegPath = foundPath
+    }
     
     /// Path to FFprobe binary
     var ffprobePath: String {
@@ -221,26 +223,42 @@ class FFmpegWrapper: ObservableObject {
         }
     }
     
-    func analyzeVideoFiles(paths: [String]) -> VideoAnalysisResult? {
+    func analyzeVideoFiles(paths: [String]) async -> VideoAnalysisResult? {
         var fileInfos: [String: VideoDimensionInfo] = [:]
+
+        // Use a task group to analyze files concurrently
+        await withTaskGroup(of: (String, VideoDimensionInfo?).self) { group in
+            for path in paths {
+                group.addTask {
+                    let info = self.getVideoDimensions(from: path)
+                    return (path, info)
+                }
+            }
+
+            for await (path, info) in group {
+                if let info = info {
+                    fileInfos[path] = info
+                }
+            }
+        }
+
+        guard !fileInfos.isEmpty else { return nil }
+
         var resolutions: [String: Int] = [:]
         var codecs: Set<String> = []
         var frameRates: Set<Double> = []
         
-        for path in paths {
-            if let info = getVideoDimensions(from: path) {
-                fileInfos[path] = info
-                
-                let resKey = info.resolutionString
-                resolutions[resKey, default: 0] += 1
-                
-                if let codec = info.codec {
-                    codecs.insert(codec)
-                }
-                
-                if let fr = info.frameRate {
-                    frameRates.insert(fr)
-                }
+        // Aggregate results from analyzed files
+        for info in fileInfos.values {
+            let resKey = info.resolutionString
+            resolutions[resKey, default: 0] += 1
+
+            if let codec = info.codec {
+                codecs.insert(codec)
+            }
+
+            if let fr = info.frameRate {
+                frameRates.insert(fr)
             }
         }
         

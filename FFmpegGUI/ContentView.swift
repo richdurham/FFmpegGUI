@@ -895,11 +895,18 @@ struct MergeView: View {
             }
         }
         .onChange(of: inputPaths) { newPaths in
-            if !newPaths.isEmpty {
-                analysisResult = ffmpeg.analyzeVideoFiles(paths: newPaths)
-                useReencode = analysisResult?.needsReencoding ?? false
-            } else {
-                analysisResult = nil
+            Task {
+                if !newPaths.isEmpty {
+                    let result = await ffmpeg.analyzeVideoFiles(paths: newPaths)
+                    await MainActor.run {
+                        analysisResult = result
+                        useReencode = result?.needsReencoding ?? false
+                    }
+                } else {
+                    await MainActor.run {
+                        analysisResult = nil
+                    }
+                }
             }
         }
     }
