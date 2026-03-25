@@ -39,48 +39,58 @@ class FFmpegWrapper: ObservableObject {
     
     /// Path to FFmpeg binary - checks common installation locations
     lazy var ffmpegPath: String = {
-        let possiblePaths = [
-            "/opt/homebrew/bin/ffmpeg",  // Apple Silicon Homebrew
-            "/usr/local/bin/ffmpeg",      // Intel Homebrew
-            "/usr/bin/ffmpeg",            // System installation
-            "/opt/local/bin/ffmpeg"       // MacPorts
+        if let path = findExecutable(named: "ffmpeg") {
+            return path
+        }
+        // Fallback to absolute path instead of relative "ffmpeg"
+        return "/usr/bin/ffmpeg"
+    }()
+    
+    /// Path to FFprobe binary
+    lazy var ffprobePath: String = {
+        if let path = findExecutable(named: "ffprobe") {
+            return path
+        }
+        return "/usr/bin/ffprobe"
+    }()
+    
+    /// Check if FFmpeg is installed
+    func isFFmpegInstalled() -> Bool {
+        return findExecutable(named: "ffmpeg") != nil
+    }
+
+    /// Helper to find executable in common locations or PATH
+    private func findExecutable(named executable: String) -> String? {
+        let commonPaths = [
+            "/opt/homebrew/bin",  // Apple Silicon Homebrew
+            "/usr/local/bin",      // Intel Homebrew
+            "/usr/bin",            // System installation
+            "/opt/local/bin"       // MacPorts
         ]
         
-        for path in possiblePaths {
+        // 1. Check common locations
+        for directory in commonPaths {
+            let path = (directory as NSString).appendingPathComponent(executable)
             if FileManager.default.fileExists(atPath: path) {
                 return path
             }
         }
-        
-        // Default to hoping it's in PATH
-        return "ffmpeg"
-    }()
-    
-    /// Path to FFprobe binary
-    var ffprobePath: String {
-        ffmpegPath.replacingOccurrences(of: "ffmpeg", with: "ffprobe")
-    }
-    
-    /// Check if FFmpeg is installed
-    func isFFmpegInstalled() -> Bool {
-        // Check if we can find FFmpeg in any of the common locations
-        let possiblePaths = [
-            "/opt/homebrew/bin/ffmpeg",  // Apple Silicon Homebrew
-            "/usr/local/bin/ffmpeg",      // Intel Homebrew
-            "/usr/bin/ffmpeg",            // System installation
-            "/opt/local/bin/ffmpeg"       // MacPorts
-        ]
-        
-        for path in possiblePaths {
-            if FileManager.default.fileExists(atPath: path) {
-                return true
+
+        // 2. Check PATH environment variable
+        let env = ProcessInfo.processInfo.environment
+        if let pathVar = env["PATH"] {
+            let paths = pathVar.components(separatedBy: ":")
+            for directory in paths {
+                let path = (directory as NSString).appendingPathComponent(executable)
+                if FileManager.default.fileExists(atPath: path) {
+                    return path
+                }
             }
         }
         
-        return false
+        return nil
     }
     
-    /// Get FFmpeg version info
     func getFFmpegVersion() -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffmpegPath)
