@@ -65,4 +65,30 @@ final class FFmpegWrapperTests: XCTestCase {
         XCTAssertNotNil(result)
         XCTAssertEqual(result!, 24000.0 / 1001.0, accuracy: 0.0001)
     }
+
+    func testImageAnalysisResult_WarningMessage_None() {
+        let info = FFmpegWrapper.ImageDimensionInfo(width: 1920, height: 1080, count: 10, hasOddDimension: false)
+        let result = FFmpegWrapper.ImageAnalysisResult(mostCommonDimension: info, totalImages: 10, uniqueDimensions: [info], hasMixedSizes: false, needsCorrection: false)
+        XCTAssertNil(result.warningMessage)
+    }
+
+    func testImageAnalysisResult_WarningMessage_OddDimensions() {
+        let info = FFmpegWrapper.ImageDimensionInfo(width: 1921, height: 1080, count: 10, hasOddDimension: true)
+        let result = FFmpegWrapper.ImageAnalysisResult(mostCommonDimension: info, totalImages: 10, uniqueDimensions: [info], hasMixedSizes: false, needsCorrection: true)
+        XCTAssertEqual(result.warningMessage, "Most common size (1921x1080) has odd dimensions")
+    }
+
+    func testImageAnalysisResult_WarningMessage_MixedSizes() {
+        let info1 = FFmpegWrapper.ImageDimensionInfo(width: 1920, height: 1080, count: 5, hasOddDimension: false)
+        let info2 = FFmpegWrapper.ImageDimensionInfo(width: 1280, height: 720, count: 5, hasOddDimension: false)
+        let result = FFmpegWrapper.ImageAnalysisResult(mostCommonDimension: info1, totalImages: 10, uniqueDimensions: [info1, info2], hasMixedSizes: true, needsCorrection: true)
+        XCTAssertEqual(result.warningMessage, "2 different image sizes detected")
+    }
+
+    func testImageAnalysisResult_WarningMessage_BothWarnings() {
+        let info1 = FFmpegWrapper.ImageDimensionInfo(width: 1921, height: 1080, count: 5, hasOddDimension: true)
+        let info2 = FFmpegWrapper.ImageDimensionInfo(width: 1280, height: 720, count: 5, hasOddDimension: false)
+        let result = FFmpegWrapper.ImageAnalysisResult(mostCommonDimension: info1, totalImages: 10, uniqueDimensions: [info1, info2], hasMixedSizes: true, needsCorrection: true)
+        XCTAssertEqual(result.warningMessage, "Most common size (1921x1080) has odd dimensions. 2 different image sizes detected")
+    }
 }
