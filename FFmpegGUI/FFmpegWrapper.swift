@@ -37,23 +37,22 @@ class FFmpegWrapper: ObservableObject {
     
     private var currentProcess: Process?
     
+    /// Common installation paths for FFmpeg on macOS
+    private static let commonFFmpegPaths = [
+        "/opt/homebrew/bin/ffmpeg",   // Apple Silicon Homebrew
+        "/usr/local/bin/ffmpeg",       // Intel Homebrew
+        "/usr/bin/ffmpeg",             // System installation
+        "/opt/local/bin/ffmpeg"        // MacPorts
+    ]
+
+    /// Finds the first existing FFmpeg path from common locations
+    private static func findAvailableFFmpegPath() -> String? {
+        commonFFmpegPaths.first { FileManager.default.fileExists(atPath: $0) }
+    }
+
     /// Path to FFmpeg binary - checks common installation locations
     lazy var ffmpegPath: String = {
-        let possiblePaths = [
-            "/opt/homebrew/bin/ffmpeg",  // Apple Silicon Homebrew
-            "/usr/local/bin/ffmpeg",      // Intel Homebrew
-            "/usr/bin/ffmpeg",            // System installation
-            "/opt/local/bin/ffmpeg"       // MacPorts
-        ]
-        
-        for path in possiblePaths {
-            if FileManager.default.fileExists(atPath: path) {
-                return path
-            }
-        }
-        
-        // Default to hoping it's in PATH
-        return "ffmpeg"
+        Self.findAvailableFFmpegPath() ?? "ffmpeg"
     }()
     
     /// Path to FFprobe binary
@@ -63,21 +62,7 @@ class FFmpegWrapper: ObservableObject {
     
     /// Check if FFmpeg is installed
     func isFFmpegInstalled() -> Bool {
-        // Check if we can find FFmpeg in any of the common locations
-        let possiblePaths = [
-            "/opt/homebrew/bin/ffmpeg",  // Apple Silicon Homebrew
-            "/usr/local/bin/ffmpeg",      // Intel Homebrew
-            "/usr/bin/ffmpeg",            // System installation
-            "/opt/local/bin/ffmpeg"       // MacPorts
-        ]
-        
-        for path in possiblePaths {
-            if FileManager.default.fileExists(atPath: path) {
-                return true
-            }
-        }
-        
-        return false
+        Self.findAvailableFFmpegPath() != nil
     }
     
     /// Get FFmpeg version info
