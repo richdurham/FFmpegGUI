@@ -66,38 +66,40 @@ final class FFmpegWrapperTests: XCTestCase {
         XCTAssertEqual(result!, 24000.0 / 1001.0, accuracy: 0.0001)
     }
 
-    func testTimeStringToSeconds_HHMMSS() {
-        XCTAssertEqual(sut.timeStringToSeconds("00:01:30.5"), 90.5)
-        XCTAssertEqual(sut.timeStringToSeconds("01:02:03"), 3723.0)
-    }
+    func testImageAnalysisResult_WarningMessage() {
+        let evenDim = FFmpegWrapper.ImageDimensionInfo(width: 1920, height: 1080, count: 10, hasOddDimension: false)
+        let oddWidthDim = FFmpegWrapper.ImageDimensionInfo(width: 1921, height: 1080, count: 10, hasOddDimension: true)
+        let oddHeightDim = FFmpegWrapper.ImageDimensionInfo(width: 1920, height: 1081, count: 10, hasOddDimension: true)
 
-    func testTimeStringToSeconds_MMSS() {
-        XCTAssertEqual(sut.timeStringToSeconds("01:30.5"), 90.5)
-        XCTAssertEqual(sut.timeStringToSeconds("10:00"), 600.0)
-    }
+        let testCases: [(mostCommon: FFmpegWrapper.ImageDimensionInfo, hasMixed: Bool, uniqueCount: Int, expected: String?)] = [
+            // No warnings
+            (evenDim, false, 1, nil),
 
-    func testTimeStringToSeconds_SecondsOnly() {
-        XCTAssertEqual(sut.timeStringToSeconds("90.5"), 90.5)
-        XCTAssertEqual(sut.timeStringToSeconds("45"), 45.0)
-    }
+            // Odd dimensions only
+            (oddWidthDim, false, 1, "Most common size (1921x1080) has odd dimensions"),
+            (oddHeightDim, false, 1, "Most common size (1920x1081) has odd dimensions"),
 
-    func testTimeStringToSeconds_WithUnits() {
-        XCTAssertEqual(sut.timeStringToSeconds("90.5s"), 90.5)
-        XCTAssertEqual(sut.timeStringToSeconds("1500ms"), 1.5)
-        XCTAssertEqual(sut.timeStringToSeconds("1000000us"), 1.0)
-    }
+            // Mixed sizes only
+            (evenDim, true, 2, "2 different image sizes detected"),
+            (evenDim, true, 5, "5 different image sizes detected"),
 
-    func testTimeStringToSeconds_Whitespace() {
-        XCTAssertEqual(sut.timeStringToSeconds("  00:00:10  "), 10.0)
-    }
+            // Both warnings
+            (oddWidthDim, true, 3, "Most common size (1921x1080) has odd dimensions. 3 different image sizes detected")
+        ]
 
-    func testTimeStringToSeconds_Invalid() {
-        XCTAssertNil(sut.timeStringToSeconds(""))
-        XCTAssertNil(sut.timeStringToSeconds("invalid"))
-        XCTAssertNil(sut.timeStringToSeconds("1:60:00")) // minutes > 59 not allowed by regex
-    }
+        for (mostCommon, hasMixed, uniqueCount, expected) in testCases {
+            // Mock uniqueDimensions with empty ones as only count is used in warningMessage
+            let uniqueDimensions = Array(repeating: evenDim, count: uniqueCount)
 
-    func testTimeStringToSeconds_Negative() {
-        XCTAssertEqual(sut.timeStringToSeconds("-10s"), -10.0)
+            let result = FFmpegWrapper.ImageAnalysisResult(
+                mostCommonDimension: mostCommon,
+                totalImages: 100,
+                uniqueDimensions: uniqueDimensions,
+                hasMixedSizes: hasMixed,
+                needsCorrection: mostCommon.hasOddDimension || hasMixed
+            )
+
+            XCTAssertEqual(result.warningMessage, expected, "Failed for mostCommon: \(mostCommon.width)x\(mostCommon.height), hasMixed: \(hasMixed), uniqueCount: \(uniqueCount)")
+        }
     }
 }

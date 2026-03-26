@@ -7,6 +7,26 @@
 
 import Foundation
 import AppKit
+enum FFprobeError: Error, LocalizedError {
+    case executionFailed(Error)
+    case jsonDecodingFailed(Error)
+    case noVideoStreamFound
+    case invalidOutput
+
+    var errorDescription: String? {
+        switch self {
+        case .executionFailed(let error):
+            return "FFprobe execution failed: \(error.localizedDescription)"
+        case .jsonDecodingFailed(let error):
+            return "Failed to decode FFprobe output: \(error.localizedDescription)"
+        case .noVideoStreamFound:
+            return "No valid video stream was found in the file."
+        case .invalidOutput:
+            return "FFprobe returned invalid or unreadable data."
+        }
+    }
+}
+
 
 /// Manages FFmpeg command execution and provides methods for common operations
 class FFmpegWrapper: ObservableObject {
@@ -16,9 +36,18 @@ class FFmpegWrapper: ObservableObject {
     @Published var outputLog = ""
     
     private var currentProcess: Process?
+
+    private static let possibleFFmpegPaths = [
+        "/opt/homebrew/bin/ffmpeg",  // Apple Silicon Homebrew
+        "/usr/local/bin/ffmpeg",      // Intel Homebrew
+        "/usr/bin/ffmpeg",            // System installation
+        "/opt/local/bin/ffmpeg"       // MacPorts
+    ]
     
     /// Path to FFmpeg binary - checks common installation locations
-    lazy var ffmpegPath: String = {
+    let ffmpegPath: String
+
+    init() {
         let possiblePaths = [
             "/opt/homebrew/bin/ffmpeg",  // Apple Silicon Homebrew
             "/usr/local/bin/ffmpeg",      // Intel Homebrew
@@ -26,15 +55,17 @@ class FFmpegWrapper: ObservableObject {
             "/opt/local/bin/ffmpeg"       // MacPorts
         ]
         
+        var foundPath = "ffmpeg"
         for path in possiblePaths {
+    lazy var ffmpegPath: String = {
+        for path in Self.possibleFFmpegPaths {
             if FileManager.default.fileExists(atPath: path) {
-                return path
+                foundPath = path
+                break
             }
         }
-        
-        // Default to hoping it's in PATH
-        return "ffmpeg"
-    }()
+        self.ffmpegPath = foundPath
+    }
     
     /// Path to FFprobe binary
     var ffprobePath: String {
@@ -44,14 +75,7 @@ class FFmpegWrapper: ObservableObject {
     /// Check if FFmpeg is installed
     func isFFmpegInstalled() -> Bool {
         // Check if we can find FFmpeg in any of the common locations
-        let possiblePaths = [
-            "/opt/homebrew/bin/ffmpeg",  // Apple Silicon Homebrew
-            "/usr/local/bin/ffmpeg",      // Intel Homebrew
-            "/usr/bin/ffmpeg",            // System installation
-            "/opt/local/bin/ffmpeg"       // MacPorts
-        ]
-        
-        for path in possiblePaths {
+        for path in Self.possibleFFmpegPaths {
             if FileManager.default.fileExists(atPath: path) {
                 return true
             }
@@ -134,14 +158,14 @@ class FFmpegWrapper: ObservableObject {
         return Double(string)
     }
     
-    private func parseFFprobeOutput(_ data: Data) -> VideoDimensionInfo? {
+    private func parseFFprobeOutput(_ data: Data) throws -> VideoDimensionInfo {
         let decoder = JSONDecoder()
         do {
             let result = try decoder.decode(FFprobeResult.self, from: data)
             
             // Find the first video stream
             guard let videoStream = result.streams?.first(where: { $0.width != nil && $0.height != nil }) else {
-                return nil
+                throw FFprobeError.noVideoStreamFound
             }
             
             let width = videoStream.width ?? 0
@@ -163,12 +187,11 @@ class FFmpegWrapper: ObservableObject {
             )
             
         } catch {
-            print("Error decoding FFprobe JSON: \(error)")
-            return nil
+            throw FFprobeError.jsonDecodingFailed(error)
         }
     }
     
-    func getVideoDimensions(from videoPath: String) -> VideoDimensionInfo? {
+    func getVideoDimensions(from videoPath: String) throws -> VideoDimensionInfo {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffprobePath)
         process.arguments = [
@@ -187,10 +210,9 @@ class FFmpegWrapper: ObservableObject {
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             
-            return parseFFprobeOutput(data)
+            return try parseFFprobeOutput(data)
         } catch {
-            print("FFprobe execution error: \(error)")
-            return nil
+            throw FFprobeError.executionFailed(error)
         }
     }
     
@@ -221,14 +243,44 @@ class FFmpegWrapper: ObservableObject {
         }
     }
     
-    func analyzeVideoFiles(paths: [String]) -> VideoAnalysisResult? {
+    func analyzeVideoFiles(paths: [String]) async -> VideoAnalysisResult? {
         var fileInfos: [String: VideoDimensionInfo] = [:]
+
+        // Use a task group to analyze files concurrently
+        await withTaskGroup(of: (String, VideoDimensionInfo?).self) { group in
+            for path in paths {
+                group.addTask {
+                    let info = self.getVideoDimensions(from: path)
+                    return (path, info)
+                }
+            }
+
+            for await (path, info) in group {
+                if let info = info {
+                    fileInfos[path] = info
+                }
+            }
+        }
+
+        guard !fileInfos.isEmpty else { return nil }
+
         var resolutions: [String: Int] = [:]
         var codecs: Set<String> = []
         var frameRates: Set<Double> = []
         
+        // Aggregate results from analyzed files
+        for info in fileInfos.values {
+            let resKey = info.resolutionString
+            resolutions[resKey, default: 0] += 1
+
+            if let codec = info.codec {
+                codecs.insert(codec)
+            }
+
+            if let fr = info.frameRate {
+                frameRates.insert(fr)
         for path in paths {
-            if let info = getVideoDimensions(from: path) {
+            if let info = try? getVideoDimensions(from: path) {
                 fileInfos[path] = info
                 
                 let resKey = info.resolutionString
@@ -371,10 +423,7 @@ class FFmpegWrapper: ObservableObject {
             let tempDir = fileManager.temporaryDirectory
             let listFileURL = tempDir.appendingPathComponent("merge_list_\(UUID().uuidString).txt")
             
-            var listContent = ""
-            for path in inputPaths {
-                listContent += "file '\(path)'\n"
-            }
+            let listContent = inputPaths.isEmpty ? "" : inputPaths.map { "file '\(escapePathForConcat($0))'" }.joined(separator: "\n") + "\n"
             
             do {
                 try listContent.write(to: listFileURL, atomically: true, encoding: .utf8)
@@ -400,7 +449,7 @@ class FFmpegWrapper: ObservableObject {
         } else {
             // Smart merge using filter_complex (handles mixed formats)
             var arguments = ["-y"]
-            var filterComplex = ""
+            var filterComplex: [String] = []
             var mapOutputs: [String] = []
             
             // 1. Input files
@@ -411,7 +460,7 @@ class FFmpegWrapper: ObservableObject {
             // 2. Filter complex for scaling and concat
             for (index, path) in inputPaths.enumerated() {
                 // Get info for the current file
-                guard getVideoDimensions(from: path) != nil,
+                guard (try? getVideoDimensions(from: path)) != nil,
                       let targetRes = targetResolution else {
                     completion(false, "Could not get video dimensions for all files or target resolution is missing.")
                     return
@@ -427,19 +476,19 @@ class FFmpegWrapper: ObservableObject {
                 let setsarFilter = "setsar=1" // Set sample aspect ratio to 1:1
                 
                 // Video stream filter
-                filterComplex += "[\(index):v] \(scaleFilter), \(padFilter), \(setsarFilter) [v\(index)];"
+                filterComplex.append("[\(index):v] \(scaleFilter), \(padFilter), \(setsarFilter) [v\(index)];")
                 
                 // Audio stream filter (no-op, just to label)
-                filterComplex += "[\(index):a] aresample=async=1 [a\(index)];"
+                filterComplex.append("[\(index):a] aresample=async=1 [a\(index)];")
                 
                 mapOutputs.append("[v\(index)][a\(index)]")
             }
             
             // 3. Concat filter
             let n = inputPaths.count
-            filterComplex += mapOutputs.joined() + "concat=n=\(n):v=1:a=1[v_out][a_out]"
+            filterComplex.append(mapOutputs.joined() + "concat=n=\(n):v=1:a=1[v_out][a_out]")
             
-            arguments += ["-filter_complex", filterComplex]
+            arguments += ["-filter_complex", filterComplex.joined()]
             
             // 4. Output settings
             arguments += ["-map", "[v_out]", "-map", "[a_out]"]
@@ -957,6 +1006,13 @@ class FFmpegWrapper: ObservableObject {
                 completion(false, "Failed to export segment \(segmentNumber): \(message)")
             }
         }
+    }
+
+    /// Escapes single quotes and backslashes for FFmpeg's concat demuxer file list
+    private func escapePathForConcat(_ path: String) -> String {
+        return path.replacingOccurrences(of: "\\", with: "\\\\")
+                   .replacingOccurrences(of: "'", with: "\\'")
+                   .replacingOccurrences(of: "\n", with: "")
     }
 
     /// Validates if a bitrate string is in a format FFmpeg understands (e.g., "500k", "2M", "1000000")

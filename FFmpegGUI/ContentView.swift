@@ -9,6 +9,25 @@ import SwiftUI
 import UniformTypeIdentifiers
 import AVKit
 
+protocol AlertPresenting {
+    var alertTitle: String { get nonmutating set }
+    var alertMessage: String { get nonmutating set }
+    var showAlert: Bool { get nonmutating set }
+}
+
+extension AlertPresenting {
+    func validateBitrate(_ bitrate: String, title: String, message: String) -> Bool {
+        if !FFmpegWrapper.isValidBitrate(bitrate) {
+            alertTitle = title
+            alertMessage = message
+            showAlert = true
+            return false
+        }
+        return true
+    }
+}
+
+
 struct ContentView: View {
     @StateObject private var ffmpeg = FFmpegWrapper()
     @State private var selectedTab = 0
@@ -155,7 +174,7 @@ struct TabButton: View {
 
 // MARK: - Convert View
 
-struct ConvertView: View {
+struct ConvertView: View, AlertPresenting {
     @ObservedObject var ffmpeg: FFmpegWrapper
     @Binding var showAlert: Bool
     @Binding var alertTitle: String
@@ -323,19 +342,8 @@ struct ConvertView: View {
                 .frame(width: 150)
                 .padding(8)
             }
-            
             // Output File
-            GroupBox("Output File") {
-                HStack {
-                    TextField("Select output location...", text: $inputPath)
-                        .textFieldStyle(.roundedBorder)
-                    
-                    Button("Browse...") {
-                        selectOutputFile()
-                    }
-                }
-                .padding(8)
-            }
+            OutputFileSelectionView(path: $outputPath, selectAction: selectOutputFile)
             
             // Process Button
             HStack {
@@ -370,7 +378,14 @@ struct ConvertView: View {
             outputPath = outputURL.path
             
             // Get video info for scaling
-            videoInfo = ffmpeg.getVideoDimensions(from: inputPath)
+            do {
+                videoInfo = try ffmpeg.getVideoDimensions(from: inputPath)
+            } catch {
+                videoInfo = nil
+                alertTitle = "Video Analysis Failed"
+                alertMessage = error.localizedDescription
+                showAlert = true
+            }
         }
     }
     
@@ -394,19 +409,8 @@ struct ConvertView: View {
             return
         }
         
-        if !FFmpegWrapper.isValidBitrate(videoBitrate) {
-            alertTitle = "Invalid Video Bitrate"
-            alertMessage = "Please enter a valid bitrate (e.g., 2M, 500k, 1000000)."
-            showAlert = true
-            return
-        }
-
-        if !FFmpegWrapper.isValidBitrate(audioBitrate) {
-            alertTitle = "Invalid Audio Bitrate"
-            alertMessage = "Please enter a valid bitrate (e.g., 128k, 256k, 320000)."
-            showAlert = true
-            return
-        }
+        guard validateBitrate(videoBitrate, title: "Invalid Video Bitrate", message: "Please enter a valid bitrate (e.g., 2M, 500k, 1000000).") else { return }
+        guard validateBitrate(audioBitrate, title: "Invalid Audio Bitrate", message: "Please enter a valid bitrate (e.g., 128k, 256k, 320000).") else { return }
 
         ffmpeg.convertFormat(
             inputPath: inputPath,
@@ -425,11 +429,13 @@ struct ConvertView: View {
             showAlert = true
         }
     }
+
+
 }
 
 // MARK: - Cut/Trim View
 
-struct CutTrimView: View {
+struct CutTrimView: View, AlertPresenting {
     @ObservedObject var ffmpeg: FFmpegWrapper
     @Binding var showAlert: Bool
     @Binding var alertTitle: String
@@ -600,17 +606,7 @@ struct CutTrimView: View {
             }
             
             // Output File
-            GroupBox("Output File") {
-                HStack {
-                    TextField("Select output location...", text: $outputPath)
-                        .textFieldStyle(.roundedBorder)
-                    
-                    Button("Browse...") {
-                        selectOutputFile()
-                    }
-                }
-                .padding(8)
-            }
+            OutputFileSelectionView(path: $outputPath, selectAction: selectOutputFile)
             
             // Process Button
             HStack {
@@ -627,7 +623,14 @@ struct CutTrimView: View {
     // MARK: - Helper Functions
     
     private func loadVideoInfoAndProxy(path: String) {
-        videoInfo = ffmpeg.getVideoDimensions(from: path)
+        do {
+            videoInfo = try ffmpeg.getVideoDimensions(from: path)
+        } catch {
+            videoInfo = nil
+            alertTitle = "Video Analysis Failed"
+            alertMessage = error.localizedDescription
+            showAlert = true
+        }
         
         let tempDir = FileManager.default.temporaryDirectory
         let proxyPath = tempDir.appendingPathComponent("proxy_\(UUID().uuidString).mp4").path
@@ -778,7 +781,7 @@ struct CutTrimView: View {
 
 // MARK: - Merge View
 
-struct MergeView: View {
+struct MergeView: View, AlertPresenting {
     @ObservedObject var ffmpeg: FFmpegWrapper
     @Binding var showAlert: Bool
     @Binding var alertTitle: String
@@ -872,18 +875,7 @@ struct MergeView: View {
                     .padding(8)
                 }
             }
-            
-            GroupBox("Output File") {
-                HStack {
-                    TextField("Select output location...", text: $outputPath)
-                        .textFieldStyle(.roundedBorder)
-                    
-                    Button("Browse...") {
-                        selectOutputFile()
-                    }
-                }
-                .padding(8)
-            }
+            OutputFileSelectionView(path: $outputPath, selectAction: selectOutputFile)
             
             HStack {
                 Spacer()
@@ -895,11 +887,18 @@ struct MergeView: View {
             }
         }
         .onChange(of: inputPaths) { newPaths in
-            if !newPaths.isEmpty {
-                analysisResult = ffmpeg.analyzeVideoFiles(paths: newPaths)
-                useReencode = analysisResult?.needsReencoding ?? false
-            } else {
-                analysisResult = nil
+            Task {
+                if !newPaths.isEmpty {
+                    let result = await ffmpeg.analyzeVideoFiles(paths: newPaths)
+                    await MainActor.run {
+                        analysisResult = result
+                        useReencode = result?.needsReencoding ?? false
+                    }
+                } else {
+                    await MainActor.run {
+                        analysisResult = nil
+                    }
+                }
             }
         }
     }
@@ -945,19 +944,8 @@ struct MergeView: View {
         }
         
         if useReencode {
-            if !FFmpegWrapper.isValidBitrate(videoBitrate) {
-                alertTitle = "Invalid Video Bitrate"
-                alertMessage = "Please enter a valid bitrate (e.g., 2M, 500k, 1000000)."
-                showAlert = true
-                return
-            }
-
-            if !FFmpegWrapper.isValidBitrate(audioBitrate) {
-                alertTitle = "Invalid Audio Bitrate"
-                alertMessage = "Please enter a valid bitrate (e.g., 128k, 256k, 320000)."
-                showAlert = true
-                return
-            }
+            guard validateBitrate(videoBitrate, title: "Invalid Video Bitrate", message: "Please enter a valid bitrate (e.g., 2M, 500k, 1000000).") else { return }
+            guard validateBitrate(audioBitrate, title: "Invalid Audio Bitrate", message: "Please enter a valid bitrate (e.g., 128k, 256k, 320000).") else { return }
         }
 
         ffmpeg.mergeFiles(
@@ -975,11 +963,13 @@ struct MergeView: View {
             showAlert = true
         }
     }
+
+
 }
 
 // MARK: - Image Sequence View
 
-struct ImageSequenceView: View {
+struct ImageSequenceView: View, AlertPresenting {
     @ObservedObject var ffmpeg: FFmpegWrapper
     @Binding var showAlert: Bool
     @Binding var alertTitle: String
@@ -1126,18 +1116,7 @@ struct ImageSequenceView: View {
                 }
                 .padding(8)
             }
-            
-            GroupBox("Output File") {
-                HStack {
-                    TextField("Select output location...", text: $outputPath)
-                        .textFieldStyle(.roundedBorder)
-                    
-                    Button("Browse...") {
-                        selectOutputFile()
-                    }
-                }
-                .padding(8)
-            }
+            OutputFileSelectionView(path: $outputPath, selectAction: selectOutputFile)
             
             HStack {
                 Spacer()
