@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		8A1B2C3D4E5F6A7B8C9D0E63 /* FFmpegWrapperBitrateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A1B2C3D4E5F6A7B8C9D0E64 /* FFmpegWrapperBitrateTests.swift */; };
+		8A1B2C3D4E5F6A7B8C9D0EA2 /* OutputFileSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A1B2C3D4E5F6A7B8C9D0EA1 /* OutputFileSelectionView.swift */; };
 		8A1B2C3D4E5F6A7B8C9D0E62 /* FFmpegWrapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A1B2C3D4E5F6A7B8C9D0E60 /* FFmpegWrapperTests.swift */; };
 		8A1B2C3D4E5F6A7B8C9D0E1F /* FFmpegGUIApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A1B2C3D4E5F6A7B8C9D0E10 /* FFmpegGUIApp.swift */; };
 		8A1B2C3D4E5F6A7B8C9D0E20 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A1B2C3D4E5F6A7B8C9D0E21 /* ContentView.swift */; };
@@ -15,6 +17,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		8A1B2C3D4E5F6A7B8C9D0E64 /* FFmpegWrapperBitrateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegWrapperBitrateTests.swift; sourceTree = "<group>"; };
+		8A1B2C3D4E5F6A7B8C9D0EA1 /* OutputFileSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputFileSelectionView.swift; sourceTree = "<group>"; };
 		8A1B2C3D4E5F6A7B8C9D0E60 /* FFmpegWrapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegWrapperTests.swift; sourceTree = "<group>"; };
 		8A1B2C3D4E5F6A7B8C9D0E76 /* FFmpegGUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FFmpegGUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8A1B2C3D4E5F6A7B8C9D0E00 /* FFmpegGUI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FFmpegGUI.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -75,6 +79,7 @@
 			children = (
 				8A1B2C3D4E5F6A7B8C9D0E10 /* FFmpegGUIApp.swift */,
 				8A1B2C3D4E5F6A7B8C9D0E21 /* ContentView.swift */,
+				8A1B2C3D4E5F6A7B8C9D0EA1 /* OutputFileSelectionView.swift */,
 				8A1B2C3D4E5F6A7B8C9D0E31 /* FFmpegWrapper.swift */,
 				8A1B2C3D4E5F6A7B8C9D0E41 /* Assets.xcassets */,
 				8A1B2C3D4E5F6A7B8C9D0E51 /* FFmpegGUI.entitlements */,
@@ -85,6 +90,7 @@
 		8A1B2C3D4E5F6A7B8C9D0E61 /* FFmpegGUITests */ = {
 			isa = PBXGroup;
 			children = (
+				8A1B2C3D4E5F6A7B8C9D0E64 /* FFmpegWrapperBitrateTests.swift */,
 				8A1B2C3D4E5F6A7B8C9D0E60 /* FFmpegWrapperTests.swift */,
 			);
 			path = FFmpegGUITests;
@@ -188,6 +194,7 @@
 			files = (
 				8A1B2C3D4E5F6A7B8C9D0E1F /* FFmpegGUIApp.swift in Sources */,
 				8A1B2C3D4E5F6A7B8C9D0E20 /* ContentView.swift in Sources */,
+				8A1B2C3D4E5F6A7B8C9D0EA2 /* OutputFileSelectionView.swift in Sources */,
 				8A1B2C3D4E5F6A7B8C9D0E30 /* FFmpegWrapper.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -196,6 +203,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8A1B2C3D4E5F6A7B8C9D0E63 /* FFmpegWrapperBitrateTests.swift in Sources */,
 				8A1B2C3D4E5F6A7B8C9D0E62 /* FFmpegWrapperTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
