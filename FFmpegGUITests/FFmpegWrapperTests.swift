@@ -65,4 +65,41 @@ final class FFmpegWrapperTests: XCTestCase {
         XCTAssertNotNil(result)
         XCTAssertEqual(result!, 24000.0 / 1001.0, accuracy: 0.0001)
     }
+
+    func testImageAnalysisResult_WarningMessage() {
+        let evenDim = FFmpegWrapper.ImageDimensionInfo(width: 1920, height: 1080, count: 10, hasOddDimension: false)
+        let oddWidthDim = FFmpegWrapper.ImageDimensionInfo(width: 1921, height: 1080, count: 10, hasOddDimension: true)
+        let oddHeightDim = FFmpegWrapper.ImageDimensionInfo(width: 1920, height: 1081, count: 10, hasOddDimension: true)
+
+        let testCases: [(mostCommon: FFmpegWrapper.ImageDimensionInfo, hasMixed: Bool, uniqueCount: Int, expected: String?)] = [
+            // No warnings
+            (evenDim, false, 1, nil),
+
+            // Odd dimensions only
+            (oddWidthDim, false, 1, "Most common size (1921x1080) has odd dimensions"),
+            (oddHeightDim, false, 1, "Most common size (1920x1081) has odd dimensions"),
+
+            // Mixed sizes only
+            (evenDim, true, 2, "2 different image sizes detected"),
+            (evenDim, true, 5, "5 different image sizes detected"),
+
+            // Both warnings
+            (oddWidthDim, true, 3, "Most common size (1921x1080) has odd dimensions. 3 different image sizes detected")
+        ]
+
+        for (mostCommon, hasMixed, uniqueCount, expected) in testCases {
+            // Mock uniqueDimensions with empty ones as only count is used in warningMessage
+            let uniqueDimensions = Array(repeating: evenDim, count: uniqueCount)
+
+            let result = FFmpegWrapper.ImageAnalysisResult(
+                mostCommonDimension: mostCommon,
+                totalImages: 100,
+                uniqueDimensions: uniqueDimensions,
+                hasMixedSizes: hasMixed,
+                needsCorrection: mostCommon.hasOddDimension || hasMixed
+            )
+
+            XCTAssertEqual(result.warningMessage, expected, "Failed for mostCommon: \(mostCommon.width)x\(mostCommon.height), hasMixed: \(hasMixed), uniqueCount: \(uniqueCount)")
+        }
+    }
 }
