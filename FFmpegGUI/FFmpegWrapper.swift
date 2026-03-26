@@ -36,17 +36,17 @@ class FFmpegWrapper: ObservableObject {
     @Published var outputLog = ""
     
     private var currentProcess: Process?
+
+    private static let possibleFFmpegPaths = [
+        "/opt/homebrew/bin/ffmpeg",  // Apple Silicon Homebrew
+        "/usr/local/bin/ffmpeg",      // Intel Homebrew
+        "/usr/bin/ffmpeg",            // System installation
+        "/opt/local/bin/ffmpeg"       // MacPorts
+    ]
     
     /// Path to FFmpeg binary - checks common installation locations
     lazy var ffmpegPath: String = {
-        let possiblePaths = [
-            "/opt/homebrew/bin/ffmpeg",  // Apple Silicon Homebrew
-            "/usr/local/bin/ffmpeg",      // Intel Homebrew
-            "/usr/bin/ffmpeg",            // System installation
-            "/opt/local/bin/ffmpeg"       // MacPorts
-        ]
-        
-        for path in possiblePaths {
+        for path in Self.possibleFFmpegPaths {
             if FileManager.default.fileExists(atPath: path) {
                 return path
             }
@@ -64,14 +64,7 @@ class FFmpegWrapper: ObservableObject {
     /// Check if FFmpeg is installed
     func isFFmpegInstalled() -> Bool {
         // Check if we can find FFmpeg in any of the common locations
-        let possiblePaths = [
-            "/opt/homebrew/bin/ffmpeg",  // Apple Silicon Homebrew
-            "/usr/local/bin/ffmpeg",      // Intel Homebrew
-            "/usr/bin/ffmpeg",            // System installation
-            "/opt/local/bin/ffmpeg"       // MacPorts
-        ]
-        
-        for path in possiblePaths {
+        for path in Self.possibleFFmpegPaths {
             if FileManager.default.fileExists(atPath: path) {
                 return true
             }
