@@ -390,13 +390,12 @@ struct ConvertView: View, AlertPresenting {
     }
     
     private func selectOutputFile() {
-        let panel = NSSavePanel()
         let inputURL = URL(fileURLWithPath: inputPath)
         let ext = selectedOutputFormat
-        panel.allowedContentTypes = [UTType(filenameExtension: ext) ?? .movie]
-        panel.nameFieldStringValue = inputURL.deletingPathExtension().lastPathComponent + "." + ext
+        let defaultName = inputURL.deletingPathExtension().lastPathComponent + "." + ext
+        let types = [UTType(filenameExtension: ext) ?? .movie]
         
-        if panel.runModal() == .OK, let url = panel.url {
+        if let url = FileUtils.showSavePanel(allowedContentTypes: types, defaultName: defaultName) {
             outputPath = url.path
         }
     }
@@ -721,13 +720,12 @@ struct CutTrimView: View, AlertPresenting {
     }
     
     private func selectOutputFile() {
-        let panel = NSSavePanel()
         let inputURL = URL(fileURLWithPath: inputPath)
         let ext = inputURL.pathExtension
-        panel.allowedContentTypes = [UTType(filenameExtension: ext) ?? .movie]
-        panel.nameFieldStringValue = "cut_trim.\(ext)"
+        let defaultName = "cut_trim.\(ext)"
+        let types = [UTType(filenameExtension: ext) ?? .movie]
         
-        if panel.runModal() == .OK, let url = panel.url {
+        if let url = FileUtils.showSavePanel(allowedContentTypes: types, defaultName: defaultName) {
             outputPath = url.path
         }
     }
@@ -924,13 +922,13 @@ struct MergeView: View, AlertPresenting {
     }
     
     private func selectOutputFile() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType.movie]
+        var defaultName = ""
         if !inputPaths.isEmpty, let firstPath = inputPaths.first {
             let inputURL = URL(fileURLWithPath: firstPath)
-            panel.nameFieldStringValue = inputURL.deletingPathExtension().lastPathComponent + ".merged.\(inputURL.pathExtension)"
+            defaultName = inputURL.deletingPathExtension().lastPathComponent + ".merged.\(inputURL.pathExtension)"
         }
-        if panel.runModal() == .OK, let url = panel.url {
+
+        if let url = FileUtils.showSavePanel(allowedContentTypes: [.movie], defaultName: defaultName) {
             outputPath = url.path
         }
     }
@@ -1142,13 +1140,13 @@ struct ImageSequenceView: View, AlertPresenting {
     }
     
     private func selectOutputFile() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType.movie]
+        var defaultName = ""
         if !inputFolderPath.isEmpty {
             let inputURL = URL(fileURLWithPath: inputFolderPath)
-            panel.nameFieldStringValue = inputURL.lastPathComponent + ".mp4"
+            defaultName = inputURL.lastPathComponent + ".mp4"
         }
-        if panel.runModal() == .OK, let url = panel.url {
+
+        if let url = FileUtils.showSavePanel(allowedContentTypes: [.movie], defaultName: defaultName) {
             outputPath = url.path
         }
     }
