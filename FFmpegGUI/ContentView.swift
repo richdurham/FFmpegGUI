@@ -9,6 +9,25 @@ import SwiftUI
 import UniformTypeIdentifiers
 import AVKit
 
+protocol AlertPresenting {
+    var alertTitle: String { get nonmutating set }
+    var alertMessage: String { get nonmutating set }
+    var showAlert: Bool { get nonmutating set }
+}
+
+extension AlertPresenting {
+    func validateBitrate(_ bitrate: String, title: String, message: String) -> Bool {
+        if !FFmpegWrapper.isValidBitrate(bitrate) {
+            alertTitle = title
+            alertMessage = message
+            showAlert = true
+            return false
+        }
+        return true
+    }
+}
+
+
 struct ContentView: View {
     @StateObject private var ffmpeg = FFmpegWrapper()
     @State private var selectedTab = 0
@@ -155,7 +174,7 @@ struct TabButton: View {
 
 // MARK: - Convert View
 
-struct ConvertView: View {
+struct ConvertView: View, AlertPresenting {
     @ObservedObject var ffmpeg: FFmpegWrapper
     @Binding var showAlert: Bool
     @Binding var alertTitle: String
@@ -323,19 +342,8 @@ struct ConvertView: View {
                 .frame(width: 150)
                 .padding(8)
             }
-            
             // Output File
-            GroupBox("Output File") {
-                HStack {
-                    TextField("Select output location...", text: $inputPath)
-                        .textFieldStyle(.roundedBorder)
-                    
-                    Button("Browse...") {
-                        selectOutputFile()
-                    }
-                }
-                .padding(8)
-            }
+            OutputFileSelectionView(path: $outputPath, selectAction: selectOutputFile)
             
             // Process Button
             HStack {
@@ -370,18 +378,22 @@ struct ConvertView: View {
             outputPath = outputURL.path
             
             // Get video info for scaling
-            videoInfo = ffmpeg.getVideoDimensions(from: inputPath)
+            do {
+                videoInfo = try ffmpeg.getVideoDimensions(from: inputPath)
+            } catch {
+                videoInfo = nil
+                alertTitle = "Video Analysis Failed"
+                alertMessage = error.localizedDescription
+                showAlert = true
+            }
         }
     }
     
     private func selectOutputFile() {
-        let panel = NSSavePanel()
         let inputURL = URL(fileURLWithPath: inputPath)
         let ext = selectedOutputFormat
-        panel.allowedContentTypes = [UTType(filenameExtension: ext) ?? .movie]
-        panel.nameFieldStringValue = inputURL.deletingPathExtension().lastPathComponent + "." + ext
-        
-        if panel.runModal() == .OK, let url = panel.url {
+        let defaultName = inputURL.deletingPathExtension().lastPathComponent + "." + ext
+        if let url = FileUtils.showSavePanel(allowedContentTypes: [UTType(filenameExtension: ext) ?? .movie], defaultName: defaultName) {
             outputPath = url.path
         }
     }
@@ -394,19 +406,8 @@ struct ConvertView: View {
             return
         }
         
-        if !FFmpegWrapper.isValidBitrate(videoBitrate) {
-            alertTitle = "Invalid Video Bitrate"
-            alertMessage = "Please enter a valid bitrate (e.g., 2M, 500k, 1000000)."
-            showAlert = true
-            return
-        }
-
-        if !FFmpegWrapper.isValidBitrate(audioBitrate) {
-            alertTitle = "Invalid Audio Bitrate"
-            alertMessage = "Please enter a valid bitrate (e.g., 128k, 256k, 320000)."
-            showAlert = true
-            return
-        }
+        guard validateBitrate(videoBitrate, title: "Invalid Video Bitrate", message: "Please enter a valid bitrate (e.g., 2M, 500k, 1000000).") else { return }
+        guard validateBitrate(audioBitrate, title: "Invalid Audio Bitrate", message: "Please enter a valid bitrate (e.g., 128k, 256k, 320000).") else { return }
 
         ffmpeg.convertFormat(
             inputPath: inputPath,
@@ -425,11 +426,13 @@ struct ConvertView: View {
             showAlert = true
         }
     }
+
+
 }
 
 // MARK: - Cut/Trim View
 
-struct CutTrimView: View {
+struct CutTrimView: View, AlertPresenting {
     @ObservedObject var ffmpeg: FFmpegWrapper
     @Binding var showAlert: Bool
     @Binding var alertTitle: String
@@ -481,7 +484,7 @@ struct CutTrimView: View {
             }
             
             // Video Preview and Controls
-            if let info = videoInfo, let proxyPath = proxyVideoPath {
+            if videoInfo != nil, let proxyPath = proxyVideoPath {
                 VStack {
                     VideoPlayer(player: player)
                         .frame(maxWidth: 640, maxHeight: 360)
@@ -600,17 +603,7 @@ struct CutTrimView: View {
             }
             
             // Output File
-            GroupBox("Output File") {
-                HStack {
-                    TextField("Select output location...", text: $outputPath)
-                        .textFieldStyle(.roundedBorder)
-                    
-                    Button("Browse...") {
-                        selectOutputFile()
-                    }
-                }
-                .padding(8)
-            }
+            OutputFileSelectionView(path: $outputPath, selectAction: selectOutputFile)
             
             // Process Button
             HStack {
@@ -627,7 +620,14 @@ struct CutTrimView: View {
     // MARK: - Helper Functions
     
     private func loadVideoInfoAndProxy(path: String) {
-        videoInfo = ffmpeg.getVideoDimensions(from: path)
+        do {
+            videoInfo = try ffmpeg.getVideoDimensions(from: path)
+        } catch {
+            videoInfo = nil
+            alertTitle = "Video Analysis Failed"
+            alertMessage = error.localizedDescription
+            showAlert = true
+        }
         
         let tempDir = FileManager.default.temporaryDirectory
         let proxyPath = tempDir.appendingPathComponent("proxy_\(UUID().uuidString).mp4").path
@@ -651,8 +651,15 @@ struct CutTrimView: View {
         let playerItem = AVPlayerItem(url: url)
         player = AVPlayer(playerItem: playerItem)
         
-        playerObserver = player?.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { [weak self] time in
-            self?.currentTime = time.seconds
+        playerObserver = player?.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { [player] time in
+            // Update the current time from the player periodically
+            // Ensure UI state updates occur on the main thread
+            DispatchQueue.main.async { [weak player] in
+                // Use the time provided by the callback to avoid needing to capture self
+                self.currentTime = time.seconds
+                // Optionally ensure the player is still alive to silence unused capture warnings
+                _ = player
+            }
         }
         
         // Get duration
@@ -711,13 +718,9 @@ struct CutTrimView: View {
     }
     
     private func selectOutputFile() {
-        let panel = NSSavePanel()
         let inputURL = URL(fileURLWithPath: inputPath)
         let ext = inputURL.pathExtension
-        panel.allowedContentTypes = [UTType(filenameExtension: ext) ?? .movie]
-        panel.nameFieldStringValue = "cut_trim.\(ext)"
-        
-        if panel.runModal() == .OK, let url = panel.url {
+        if let url = FileUtils.showSavePanel(allowedContentTypes: [UTType(filenameExtension: ext) ?? .movie], defaultName: "cut_trim.\(ext)") {
             outputPath = url.path
         }
     }
@@ -730,6 +733,30 @@ struct CutTrimView: View {
             return
         }
         
+        // Validate timecode inputs
+        if !trimStartTime.isEmpty && !FFmpegWrapper.isValidTimecode(trimStartTime) {
+            alertTitle = "Invalid Start Time"
+            alertMessage = "Please enter a valid start time (e.g., 00:00:05 or 5.5)."
+            showAlert = true
+            return
+        }
+
+        if !trimEndTime.isEmpty && !FFmpegWrapper.isValidTimecode(trimEndTime) {
+            alertTitle = "Invalid End Time"
+            alertMessage = "Please enter a valid end time (e.g., 00:01:30 or 90)."
+            showAlert = true
+            return
+        }
+
+        for segment in segments {
+            if !FFmpegWrapper.isValidTimecode(segment.start) || (!segment.end.isEmpty && !FFmpegWrapper.isValidTimecode(segment.end)) {
+                alertTitle = "Invalid Segment Time"
+                alertMessage = "One or more segments have an invalid timecode format."
+                showAlert = true
+                return
+            }
+        }
+
         ffmpeg.processCutTrim(
             inputPath: inputPath,
             outputPath: outputPath,
@@ -747,7 +774,7 @@ struct CutTrimView: View {
 
 // MARK: - Merge View
 
-struct MergeView: View {
+struct MergeView: View, AlertPresenting {
     @ObservedObject var ffmpeg: FFmpegWrapper
     @Binding var showAlert: Bool
     @Binding var alertTitle: String
@@ -841,18 +868,7 @@ struct MergeView: View {
                     .padding(8)
                 }
             }
-            
-            GroupBox("Output File") {
-                HStack {
-                    TextField("Select output location...", text: $outputPath)
-                        .textFieldStyle(.roundedBorder)
-                    
-                    Button("Browse...") {
-                        selectOutputFile()
-                    }
-                }
-                .padding(8)
-            }
+            OutputFileSelectionView(path: $outputPath, selectAction: selectOutputFile)
             
             HStack {
                 Spacer()
@@ -864,11 +880,18 @@ struct MergeView: View {
             }
         }
         .onChange(of: inputPaths) { newPaths in
-            if !newPaths.isEmpty {
-                analysisResult = ffmpeg.analyzeVideoFiles(paths: newPaths)
-                useReencode = analysisResult?.needsReencoding ?? false
-            } else {
-                analysisResult = nil
+            Task {
+                if !newPaths.isEmpty {
+                    let result = await ffmpeg.analyzeVideoFiles(paths: newPaths)
+                    await MainActor.run {
+                        analysisResult = result
+                        useReencode = result?.needsReencoding ?? false
+                    }
+                } else {
+                    await MainActor.run {
+                        analysisResult = nil
+                    }
+                }
             }
         }
     }
@@ -894,13 +917,12 @@ struct MergeView: View {
     }
     
     private func selectOutputFile() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType.movie]
+        var defaultName: String? = nil
         if !inputPaths.isEmpty, let firstPath = inputPaths.first {
             let inputURL = URL(fileURLWithPath: firstPath)
-            panel.nameFieldStringValue = inputURL.deletingPathExtension().lastPathComponent + ".merged.\(inputURL.pathExtension)"
+            defaultName = inputURL.deletingPathExtension().lastPathComponent + ".merged.\(inputURL.pathExtension)"
         }
-        if panel.runModal() == .OK, let url = panel.url {
+        if let url = FileUtils.showSavePanel(allowedContentTypes: [.movie], defaultName: defaultName) {
             outputPath = url.path
         }
     }
@@ -914,19 +936,8 @@ struct MergeView: View {
         }
         
         if useReencode {
-            if !FFmpegWrapper.isValidBitrate(videoBitrate) {
-                alertTitle = "Invalid Video Bitrate"
-                alertMessage = "Please enter a valid bitrate (e.g., 2M, 500k, 1000000)."
-                showAlert = true
-                return
-            }
-
-            if !FFmpegWrapper.isValidBitrate(audioBitrate) {
-                alertTitle = "Invalid Audio Bitrate"
-                alertMessage = "Please enter a valid bitrate (e.g., 128k, 256k, 320000)."
-                showAlert = true
-                return
-            }
+            guard validateBitrate(videoBitrate, title: "Invalid Video Bitrate", message: "Please enter a valid bitrate (e.g., 2M, 500k, 1000000).") else { return }
+            guard validateBitrate(audioBitrate, title: "Invalid Audio Bitrate", message: "Please enter a valid bitrate (e.g., 128k, 256k, 320000).") else { return }
         }
 
         ffmpeg.mergeFiles(
@@ -944,11 +955,13 @@ struct MergeView: View {
             showAlert = true
         }
     }
+
+
 }
 
 // MARK: - Image Sequence View
 
-struct ImageSequenceView: View {
+struct ImageSequenceView: View, AlertPresenting {
     @ObservedObject var ffmpeg: FFmpegWrapper
     @Binding var showAlert: Bool
     @Binding var alertTitle: String
@@ -983,7 +996,9 @@ struct ImageSequenceView: View {
                     TextField("Select folder containing image sequence...", text: $inputFolderPath)
                         .textFieldStyle(.roundedBorder)
                         .onChange(of: inputFolderPath) { newPath in
-                            Task {
+                            // Wrap the async call in a Task.detached to explicitly offload it
+                            // and then await its result to update the UI on the main actor.
+                            Task.detached {
                                 if !newPath.isEmpty {
                                     let result = await ffmpeg.analyzeImageDimensions(in: newPath)
                                     await MainActor.run {
@@ -1093,18 +1108,7 @@ struct ImageSequenceView: View {
                 }
                 .padding(8)
             }
-            
-            GroupBox("Output File") {
-                HStack {
-                    TextField("Select output location...", text: $outputPath)
-                        .textFieldStyle(.roundedBorder)
-                    
-                    Button("Browse...") {
-                        selectOutputFile()
-                    }
-                }
-                .padding(8)
-            }
+            OutputFileSelectionView(path: $outputPath, selectAction: selectOutputFile)
             
             HStack {
                 Spacer()
@@ -1130,13 +1134,12 @@ struct ImageSequenceView: View {
     }
     
     private func selectOutputFile() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType.movie]
+        var defaultName: String? = nil
         if !inputFolderPath.isEmpty {
             let inputURL = URL(fileURLWithPath: inputFolderPath)
-            panel.nameFieldStringValue = inputURL.lastPathComponent + ".mp4"
+            defaultName = inputURL.lastPathComponent + ".mp4"
         }
-        if panel.runModal() == .OK, let url = panel.url {
+        if let url = FileUtils.showSavePanel(allowedContentTypes: [.movie], defaultName: defaultName) {
             outputPath = url.path
         }
     }
@@ -1202,3 +1205,4 @@ struct StatusView: View {
         .padding()
     }
 }
+
