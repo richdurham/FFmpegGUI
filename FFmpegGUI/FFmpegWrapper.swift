@@ -792,7 +792,7 @@ class FFmpegWrapper: ObservableObject {
                     existing.count += 1
                     dimensionCounts[key] = existing
                 } else {
-                    dimensionCounts[key] = (mockWidth, mockHeight, 1)
+                    dimensionCounts[key] = (width, height, 1)
                 }
             }
 
