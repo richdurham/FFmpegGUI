@@ -23,15 +23,17 @@ struct FileUtils {
         allowsMultipleSelection: Bool = false,
         canChooseDirectories: Bool = false,
         canChooseFiles: Bool = true,
-        onComplete: ([URL]) -> Void
+        onComplete: @escaping ([URL]) -> Void
     ) {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = allowsMultipleSelection
         panel.canChooseDirectories = canChooseDirectories
         panel.canChooseFiles = canChooseFiles
 
-        if panel.runModal() == .OK {
-            onComplete(panel.urls)
+        panel.begin { response in
+            if response == .OK {
+                onComplete(panel.urls)
+            }
         }
     }
 }
