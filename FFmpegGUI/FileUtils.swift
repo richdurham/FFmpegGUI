@@ -18,4 +18,20 @@ struct FileUtils {
         }
         return nil
     }
+
+    static func selectFileInputs(
+        allowsMultipleSelection: Bool = false,
+        canChooseDirectories: Bool = false,
+        canChooseFiles: Bool = true,
+        onComplete: ([URL]) -> Void
+    ) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = allowsMultipleSelection
+        panel.canChooseDirectories = canChooseDirectories
+        panel.canChooseFiles = canChooseFiles
+
+        if panel.runModal() == .OK {
+            onComplete(panel.urls)
+        }
+    }
 }

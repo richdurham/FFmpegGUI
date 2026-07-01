@@ -365,12 +365,8 @@ struct ConvertView: View, AlertPresenting {
     }
     
     private func selectInputFile() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        
-        if panel.runModal() == .OK, let url = panel.url {
+        FileUtils.selectFileInputs { urls in
+            guard let url = urls.first else { return }
             inputPath = url.path
             // Auto-generate output path
             let inputURL = URL(fileURLWithPath: inputPath)
@@ -704,12 +700,8 @@ struct CutTrimView: View, AlertPresenting {
     }
     
     private func selectInputFile() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        
-        if panel.runModal() == .OK, let url = panel.url {
+        FileUtils.selectFileInputs { urls in
+            guard let url = urls.first else { return }
             inputPath = url.path
             let inputURL = URL(fileURLWithPath: inputPath)
             let outputURL = inputURL.deletingPathExtension().appendingPathExtension("cut_trim.\(inputURL.pathExtension)")
@@ -897,13 +889,8 @@ struct MergeView: View, AlertPresenting {
     }
     
     private func selectInputFiles() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        
-        if panel.runModal() == .OK {
-            inputPaths.append(contentsOf: panel.urls.map { $0.path })
+        FileUtils.selectFileInputs(allowsMultipleSelection: true) { urls in
+            inputPaths.append(contentsOf: urls.map { $0.path })
             if outputPath.isEmpty, let firstPath = inputPaths.first {
                 let inputURL = URL(fileURLWithPath: firstPath)
                 let outputURL = inputURL.deletingPathExtension().appendingPathExtension("merged.\(inputURL.pathExtension)")
@@ -1122,11 +1109,8 @@ struct ImageSequenceView: View, AlertPresenting {
     }
     
     private func selectInputFolder() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        if panel.runModal() == .OK, let url = panel.url {
+        FileUtils.selectFileInputs(canChooseDirectories: true, canChooseFiles: false) { urls in
+            guard let url = urls.first else { return }
             inputFolderPath = url.path
             let outputURL = url.appendingPathComponent("output.mp4")
             outputPath = outputURL.path
