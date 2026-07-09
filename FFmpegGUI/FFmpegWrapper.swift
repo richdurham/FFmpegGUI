@@ -578,7 +578,7 @@ class FFmpegWrapper: ObservableObject {
     }
     
     /// Helper to convert HH:MM:SS.ms to seconds (Double)
-    private func timeStringToSeconds(_ timeString: String) -> Double? {
+    func timeStringToSeconds(_ timeString: String) -> Double? {
         let trimmed = timeString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
