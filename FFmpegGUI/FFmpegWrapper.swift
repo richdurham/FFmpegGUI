@@ -48,17 +48,8 @@ class FFmpegWrapper: ObservableObject {
     let ffmpegPath: String
 
     init() {
-        let possiblePaths = [
-            "/opt/homebrew/bin/ffmpeg",  // Apple Silicon Homebrew
-            "/usr/local/bin/ffmpeg",      // Intel Homebrew
-            "/usr/bin/ffmpeg",            // System installation
-            "/opt/local/bin/ffmpeg"       // MacPorts
-        ]
-        
         var foundPath = "ffmpeg"
-        for path in possiblePaths {
-    lazy var ffmpegPath: String = {
-        for path in Self.possibleFFmpegPaths {
+        for path in FFmpegWrapper.possibleFFmpegPaths {
             if FileManager.default.fileExists(atPath: path) {
                 foundPath = path
                 break
@@ -250,7 +241,7 @@ class FFmpegWrapper: ObservableObject {
         await withTaskGroup(of: (String, VideoDimensionInfo?).self) { group in
             for path in paths {
                 group.addTask {
-                    let info = self.getVideoDimensions(from: path)
+                    let info = try? self.getVideoDimensions(from: path)
                     return (path, info)
                 }
             }
@@ -279,24 +270,8 @@ class FFmpegWrapper: ObservableObject {
 
             if let fr = info.frameRate {
                 frameRates.insert(fr)
-        for path in paths {
-            if let info = try? getVideoDimensions(from: path) {
-                fileInfos[path] = info
-                
-                let resKey = info.resolutionString
-                resolutions[resKey, default: 0] += 1
-                
-                if let codec = info.codec {
-                    codecs.insert(codec)
-                }
-                
-                if let fr = info.frameRate {
-                    frameRates.insert(fr)
-                }
             }
         }
-        
-        guard !fileInfos.isEmpty else { return nil }
         
         // Find most common resolution
         guard let mostCommonEntry = resolutions.max(by: { $0.value < $1.value }) else {
@@ -448,77 +423,68 @@ class FFmpegWrapper: ObservableObject {
             
         } else {
             // Smart merge using filter_complex (handles mixed formats)
-            var arguments = ["-y"]
-            var filterComplex: [String] = []
-            var mapOutputs: [String] = []
-            
-            // 1. Input files
-            for path in inputPaths {
-                arguments += ["-i", path]
-            }
-            
-            // 2. Filter complex for scaling and concat
-            for (index, path) in inputPaths.enumerated() {
-                // Get info for the current file
-                guard (try? getVideoDimensions(from: path)) != nil,
-                      let targetRes = targetResolution else {
-                    completion(false, "Could not get video dimensions for all files or target resolution is missing.")
-                    return
+            Task.detached(priority: .userInitiated) {
+                let analysis = await self.analyzeVideoFiles(paths: inputPaths)
+                let fileInfos = analysis?.files ?? [:]
+
+                var arguments = ["-y"]
+                var filterComplex: [String] = []
+                var mapOutputs: [String] = []
+
+                // 1. Input files
+                for path in inputPaths {
+                    arguments += ["-i", path]
+                }
+
+                // 2. Filter complex for scaling and concat
+                for (index, path) in inputPaths.enumerated() {
+                    // Get info for the current file
+                    guard fileInfos[path] != nil,
+                          let targetRes = targetResolution else {
+                        await MainActor.run {
+                            completion(false, "Could not get video dimensions for all files or target resolution is missing.")
+                        }
+                        return
+                    }
+
+                    let w = targetRes.width
+                    let h = targetRes.height
+
+                    // Scale and pad filter
+                    let scaleFilter = "scale=\(w):\(h):force_original_aspect_ratio=decrease"
+                    let padFilter = "pad=\(w):\(h):(ow-iw)/2:(oh-ih)/2"
+                    let setsarFilter = "setsar=1"
+
+                    // Video stream filter
+                    filterComplex.append("[\(index):v] \(scaleFilter), \(padFilter), \(setsarFilter) [v\(index)];")
+
+                    // Audio stream filter (no-op, just to label)
+                    filterComplex.append("[\(index):a] aresample=async=1 [a\(index)];")
+
+                    mapOutputs.append("[v\(index)][a\(index)]")
                 }
                 
-                let w = targetRes.width
-                let h = targetRes.height
+                // 3. Concat filter
+                let n = inputPaths.count
+                filterComplex.append(mapOutputs.joined() + "concat=n=\(n):v=1:a=1[v_out][a_out]")
                 
-                // Scale and pad filter
-                // [v_in]scale=w:h:force_original_aspect_ratio=decrease,pad=w:h:(w-iw)/2:(h-ih)/2,setsar=1[v_out]
-                let scaleFilter = "scale=\(w):\(h):force_original_aspect_ratio=decrease"
-                let padFilter = "pad=\(w):\(h):(ow-iw)/2:(oh-ih)/2"
-                let setsarFilter = "setsar=1" // Set sample aspect ratio to 1:1
+                arguments += ["-filter_complex", filterComplex.joined()]
                 
-                // Video stream filter
-                filterComplex.append("[\(index):v] \(scaleFilter), \(padFilter), \(setsarFilter) [v\(index)];")
+                // 4. Output settings
+                arguments += ["-map", "[v_out]", "-map", "[a_out]"]
+                arguments += ["-c:v", (videoCodec != nil && videoCodec != "copy") ? videoCodec! : "libx264"]
+                arguments += ["-c:a", (audioCodec != nil && audioCodec != "copy") ? audioCodec! : "aac"]
                 
-                // Audio stream filter (no-op, just to label)
-                filterComplex.append("[\(index):a] aresample=async=1 [a\(index)];")
+                if let vb = videoBitrate, !vb.isEmpty { arguments += ["-b:v", vb] }
+                if let ab = audioBitrate, !ab.isEmpty { arguments += ["-b:a", ab] }
                 
-                mapOutputs.append("[v\(index)][a\(index)]")
+                arguments += ["-pix_fmt", "yuv420p"]
+                arguments += [outputPath]
+
+                await MainActor.run {
+                    self.runFFmpeg(arguments: arguments, completion: completion)
+                }
             }
-            
-            // 3. Concat filter
-            let n = inputPaths.count
-            filterComplex.append(mapOutputs.joined() + "concat=n=\(n):v=1:a=1[v_out][a_out]")
-            
-            arguments += ["-filter_complex", filterComplex.joined()]
-            
-            // 4. Output settings
-            arguments += ["-map", "[v_out]", "-map", "[a_out]"]
-            
-            if let vc = videoCodec, vc != "copy" {
-                arguments += ["-c:v", vc]
-            } else {
-                arguments += ["-c:v", "libx264"] // Default video codec for re-encode
-            }
-            
-            if let ac = audioCodec, ac != "copy" {
-                arguments += ["-c:a", ac]
-            } else {
-                arguments += ["-c:a", "aac"] // Default audio codec for re-encode
-            }
-            
-            if let vb = videoBitrate, !vb.isEmpty {
-                arguments += ["-b:v", vb]
-            }
-            
-            if let ab = audioBitrate, !ab.isEmpty {
-                arguments += ["-b:a", ab]
-            }
-            
-            arguments += ["-pix_fmt", "yuv420p"] // Recommended pixel format
-            
-            // 5. Output path
-            arguments += [outputPath]
-            
-            runFFmpeg(arguments: arguments, completion: completion)
         }
     }
     
